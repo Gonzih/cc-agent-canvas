@@ -1,0 +1,37 @@
+{
+  "name": "cc-agent-canvas",
+  "version": "1.0.0",
+  "description": "Infinite canvas UI for cc-agent — glowing orbs, organic layout",
+  "type": "module",
+  "bin": {
+    "cc-agent-canvas": "./server.js"
+  },
+  "files": [
+    "dist/",
+    "server.js"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "start": "node server.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "framer-motion": "^12.38.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "redis": "^4.7.1",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}

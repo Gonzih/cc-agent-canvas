@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  cc-agent-canvas:
+    build: .
+    ports:
+      - "3131:3131"
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379
+    restart: unless-stopped
