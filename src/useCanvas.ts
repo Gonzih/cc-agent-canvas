@@ -10,6 +10,8 @@ export interface HubNode extends d3.SimulationNodeDatum {
   label: string;
   colorIndex: number;
   totalCount: number;
+  visibleJobCount: number;
+  collideRadius: number;
 }
 
 export interface JobNode extends d3.SimulationNodeDatum {
@@ -17,6 +19,7 @@ export interface JobNode extends d3.SimulationNodeDatum {
   id: string;
   repo: string;
   job: Job;
+  orbitRadius: number;
 }
 
 export type CanvasNode = HubNode | JobNode;
@@ -34,26 +37,71 @@ function getRepo(j: Job): string {
   return (j.repo_url || j.repoUrl || '').split('/').pop() || 'unknown';
 }
 
+function makeBlackHoleForce(): d3.Force<CanvasNode, SimLink> {
+  let _nodes: CanvasNode[] = [];
+  function force(alpha: number) {
+    for (const n of _nodes) {
+      if (n.type !== 'hub') continue;
+      const strength = 0.08 * alpha;
+      n.vx = (n.vx ?? 0) - ((n.x ?? WIDTH / 2) - WIDTH / 2) * strength;
+      n.vy = (n.vy ?? 0) - ((n.y ?? HEIGHT / 2) - HEIGHT / 2) * strength;
+    }
+  }
+  force.initialize = (nodes: CanvasNode[], _random: () => number) => { _nodes = nodes; };
+  return force;
+}
+
+function makePlanetTrailForce(): d3.Force<CanvasNode, SimLink> {
+  let _nodes: CanvasNode[] = [];
+  function force(alpha: number) {
+    const hubMap = new Map<string, HubNode>();
+    for (const n of _nodes) {
+      if (n.type === 'hub') hubMap.set((n as HubNode).repo, n as HubNode);
+    }
+    for (const n of _nodes) {
+      if (n.type !== 'job') continue;
+      const jn = n as JobNode;
+      const hub = hubMap.get(jn.repo);
+      if (!hub) continue;
+      const dx = (hub.x ?? WIDTH / 2) - (jn.x ?? WIDTH / 2);
+      const dy = (hub.y ?? HEIGHT / 2) - (jn.y ?? HEIGHT / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const targetDist = 30 + jn.orbitRadius;
+      const pull = (dist - targetDist) / dist * 0.15 * alpha;
+      jn.vx = (jn.vx ?? 0) + dx * pull;
+      jn.vy = (jn.vy ?? 0) + dy * pull;
+    }
+  }
+  force.initialize = (nodes: CanvasNode[], _random: () => number) => { _nodes = nodes; };
+  return force;
+}
+
 function buildSimForces(
   sim: d3.Simulation<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>,
-  hubJobCounts: Map<string, number>,
 ) {
-  sim.force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => {
-    const cn = n as CanvasNode;
-    if (cn.type === 'hub') {
-      const count = hubJobCounts.get(cn.id) ?? 0;
-      return count === 0 ? -100 : Math.max(-2000, -400 - ((cn as HubNode).totalCount * 8));
-    }
-    return -150;
-  }));
-  sim.force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => {
-    const cn = n as CanvasNode;
-    if (cn.type === 'hub') {
-      const count = hubJobCounts.get(cn.id) ?? 0;
-      return count === 0 ? 20 : Math.min(20 + (cn as HubNode).totalCount * 0.4, 120);
-    }
+  // Charge: hub repulsion is filter-reactive (reads visibleJobCount), jobs get fixed charge
+  sim.force('charge', d3.forceManyBody<CanvasNode>()
+    .strength(n => {
+      if (n.type === 'hub') {
+        const jobs = (n as HubNode).visibleJobCount ?? 0;
+        return Math.max(-60, -(80 + jobs * 12));
+      }
+      return -150;
+    })
+    .distanceMax(600)
+  );
+
+  // Collision — hub radius from collideRadius property, job radius fixed
+  sim.force('collide', d3.forceCollide<CanvasNode>(n => {
+    if (n.type === 'hub') return (n as HubNode).collideRadius ?? 20;
     return 32;
   }));
+
+  // Black hole — persistent central attractor pulling hubs toward sim center
+  sim.force('blackhole', makeBlackHoleForce());
+
+  // Planet trail — jobs spring toward their parent hub at desired orbit distance
+  sim.force('planetTrail', makePlanetTrailForce());
 }
 
 export function useCanvas(jobs: Job[], activeFilters: string[]) {
@@ -96,6 +144,8 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
         label: repo,
         colorIndex: getRepoColorIndex(repo),
         totalCount: totalCountByRepo.get(repo) ?? 0,
+        visibleJobCount: 0,   // set below after hubJobCounts is computed
+        collideRadius: 20,    // set below
         x: pos?.x ?? WIDTH / 2 + (Math.random() - 0.5) * 60,
         y: pos?.y ?? HEIGHT / 2 + (Math.random() - 0.5) * 60,
       };
@@ -111,6 +161,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
         id: j.id,
         repo: getRepo(j),
         job: j,
+        orbitRadius: 20 + Math.random() * 40, // refined after hubJobCounts below
         x: pos?.x ?? (hub?.x ?? WIDTH / 2) + (Math.random() - 0.5) * 120,
         y: pos?.y ?? (hub?.y ?? HEIGHT / 2) + (Math.random() - 0.5) * 120,
       };
@@ -155,6 +206,19 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
       hubJobCounts.set(hubId, (hubJobCounts.get(hubId) ?? 0) + 1);
     }
 
+    // Stamp visibleJobCount and collideRadius onto each hub node
+    for (const hub of hubNodes) {
+      const count = hubJobCounts.get(hub.id) ?? 0;
+      hub.visibleJobCount = count;
+      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 0.5, 80);
+    }
+
+    // Refine orbitRadius for each job based on its hub's visible count
+    for (const jn of allJobNodes) {
+      const hubCount = Math.max(hubJobCounts.get(`hub:${jn.repo}`) ?? 1, 1);
+      jn.orbitRadius = 20 + Math.random() * Math.sqrt(hubCount) * 8;
+    }
+
     if (simRef.current) simRef.current.stop();
 
     const sim = d3.forceSimulation<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>(allNodes)
@@ -171,7 +235,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
         if (lf) setLinks([...(lf.links() as SimLink[])]);
       });
 
-    buildSimForces(sim, hubJobCounts);
+    buildSimForces(sim);
     simRef.current = sim;
 
     return () => { sim.stop(); };
@@ -211,11 +275,18 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
       }
     }
 
-    // Count jobs per hub
+    // Count visible jobs per hub after filter
     const hubJobCounts = new Map<string, number>();
     for (const jn of filteredJobs) {
       const hubId = `hub:${jn.repo}`;
       hubJobCounts.set(hubId, (hubJobCounts.get(hubId) ?? 0) + 1);
+    }
+
+    // Stamp updated visibleJobCount and collideRadius onto hub nodes
+    for (const hub of hubs) {
+      const count = hubJobCounts.get(hub.id) ?? 0;
+      hub.visibleJobCount = count;
+      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 0.5, 80);
     }
 
     // Update simulation nodes and links
@@ -223,11 +294,11 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
     const lf = sim.force<d3.ForceLink<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>>('link');
     if (lf) lf.links(rawLinks);
 
-    // Update forces for new hub job counts
-    buildSimForces(sim, hubJobCounts);
+    // Rebuild forces — hubRepulsion will reinitialize with updated node properties
+    buildSimForces(sim);
 
-    // Heat up simulation
-    sim.alpha(0.4).restart();
+    // Heat up simulation so nodes find new equilibrium
+    sim.alpha(0.5).restart();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilters.join(',')]);
 
