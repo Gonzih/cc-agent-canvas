@@ -65,6 +65,7 @@ async function fetchJob(id) {
   if (job) {
     job.id = job.id || id;
     job.repo_url = job.repo_url || job.repoUrl || '';
+    job.dependsOn = job.dependsOn || (job.depends_on ? [job.depends_on] : (job.resumedFrom ? [job.resumedFrom] : []));
   }
   return job;
 }
@@ -80,6 +81,7 @@ async function fetchJobs(ids) {
       if (j) {
         j.id = j.id || ids[i];
         j.repo_url = j.repo_url || j.repoUrl || '';
+        j.dependsOn = j.dependsOn || (j.depends_on ? [j.depends_on] : (j.resumedFrom ? [j.resumedFrom] : []));
       }
       return j;
     })

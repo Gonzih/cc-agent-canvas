@@ -61,14 +61,18 @@ export function useCanvas(jobs: Job[]) {
       };
     });
 
-    const links: SimLink[] = jobs
-      .filter(j => j.depends_on)
-      .map(j => ({ source: j.depends_on!, target: j.id }))
-      .filter(
-        l =>
-          newNodes.some(n => n.id === l.source) &&
-          newNodes.some(n => n.id === l.target)
-      );
+    const nodeIdSet = new Set(newNodes.map(n => n.id));
+    const links: SimLink[] = [];
+    jobs.forEach(j => {
+      const parents = j.dependsOn?.length
+        ? j.dependsOn
+        : j.depends_on ? [j.depends_on] : [];
+      parents.forEach(parentId => {
+        if (nodeIdSet.has(parentId) && nodeIdSet.has(j.id)) {
+          links.push({ source: parentId, target: j.id });
+        }
+      });
+    });
 
     if (simRef.current) simRef.current.stop();
 
