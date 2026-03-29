@@ -86,7 +86,7 @@ function buildSimForces(
     .strength(n => {
       if (n.type === 'hub') {
         const jobs = (n as HubNode).visibleJobCount ?? 0;
-        return Math.max(-60, -(80 + jobs * 12));
+        return Math.max(-60, -(160 + jobs * 24));
       }
       return -150;
     })
@@ -212,7 +212,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
     for (const hub of hubNodes) {
       const count = hubJobCounts.get(hub.id) ?? 0;
       hub.visibleJobCount = count;
-      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 0.5, 80);
+      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 1.0, 80);
     }
 
     // Refine orbitRadius for each job based on its hub's visible count
@@ -288,7 +288,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
     for (const hub of hubs) {
       const count = hubJobCounts.get(hub.id) ?? 0;
       hub.visibleJobCount = count;
-      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 0.5, 80);
+      hub.collideRadius = count === 0 ? 15 : Math.min(20 + count * 1.0, 80);
     }
 
     // Update simulation nodes and links
