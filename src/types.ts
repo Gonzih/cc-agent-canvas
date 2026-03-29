@@ -10,6 +10,8 @@ export interface Job {
   startedAt?: string;
   updated_at?: string;
   depends_on?: string;
+  dependsOn?: string[];
+  resumedFrom?: string;
   // d3 simulation fields
   x?: number;
   y?: number;

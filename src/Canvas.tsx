@@ -49,13 +49,8 @@ function getRepo(n: OrbNode): string {
 }
 
 function getLinkPath(sx: number, sy: number, tx: number, ty: number): string {
-  const dx = tx - sx;
-  const dy = ty - sy;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1) return '';
-  const perp = { x: -dy / len * 40, y: dx / len * 40 };
-  const mx = (sx + tx) / 2 + perp.x;
-  const my = (sy + ty) / 2 + perp.y;
+  const mx = (sx + tx) / 2 + (ty - sy) * 0.3;
+  const my = (sy + ty) / 2 - (tx - sx) * 0.3;
   return `M ${sx} ${sy} Q ${mx} ${my} ${tx} ${ty}`;
 }
 
@@ -443,12 +438,19 @@ export function Canvas({
     lastTouchDist.current = null;
   };
 
-  // Build dependency links for SVG overlay
+  // Build dependency links for SVG overlay — use dependsOn array with resumedFrom fallback
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const links = jobs
-    .filter(j => j.depends_on)
-    .map(j => ({ sourceId: j.depends_on!, targetId: j.id }))
-    .filter(l => nodeMap.has(l.sourceId) && nodeMap.has(l.targetId));
+  const links: { sourceId: string; targetId: string }[] = [];
+  jobs.forEach(j => {
+    const parents = j.dependsOn?.length
+      ? j.dependsOn
+      : j.depends_on ? [j.depends_on] : [];
+    parents.forEach(parentId => {
+      if (nodeMap.has(parentId) && nodeMap.has(j.id)) {
+        links.push({ sourceId: parentId, targetId: j.id });
+      }
+    });
+  });
 
   return (
     <div style={{
@@ -487,6 +489,11 @@ export function Canvas({
           overflow: 'visible',
         }}
       >
+        <defs>
+          <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(100,80,60,0.3)" />
+          </marker>
+        </defs>
         <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
           {links.map(l => {
             const src = nodeMap.get(l.sourceId);
@@ -497,9 +504,9 @@ export function Canvas({
                 key={`${l.sourceId}-${l.targetId}`}
                 d={getLinkPath(src.x, src.y, tgt.x, tgt.y)}
                 fill="none"
-                stroke="rgba(100,80,60,0.25)"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
+                stroke="rgba(100,80,60,0.22)"
+                strokeWidth={1.2}
+                markerEnd="url(#arrow)"
               />
             );
           })}
