@@ -49,6 +49,7 @@ function getRepo(n: OrbNode): string {
 }
 
 function getLinkPath(sx: number, sy: number, tx: number, ty: number): string {
+  if (Math.abs(tx - sx) < 1 && Math.abs(ty - sy) < 1) return '';
   const mx = (sx + tx) / 2 + (ty - sy) * 0.3;
   const my = (sy + ty) / 2 - (tx - sx) * 0.3;
   return `M ${sx} ${sy} Q ${mx} ${my} ${tx} ${ty}`;
@@ -499,10 +500,12 @@ export function Canvas({
             const src = nodeMap.get(l.sourceId);
             const tgt = nodeMap.get(l.targetId);
             if (!src || !tgt) return null;
+            const d = getLinkPath(src.x, src.y, tgt.x, tgt.y);
+            if (!d) return null;
             return (
               <path
                 key={`${l.sourceId}-${l.targetId}`}
-                d={getLinkPath(src.x, src.y, tgt.x, tgt.y)}
+                d={d}
                 fill="none"
                 stroke="rgba(100,80,60,0.22)"
                 strokeWidth={1.2}
