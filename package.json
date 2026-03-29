@@ -1,6 +1,6 @@
 {
   "name": "cc-agent-canvas",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Infinite canvas UI for cc-agent — glowing orbs, organic layout",
   "type": "module",
   "bin": {
