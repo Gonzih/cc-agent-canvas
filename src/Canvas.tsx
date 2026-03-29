@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import * as d3 from 'd3';
 import type { CanvasNode, HubNode, JobNode, SimLink } from './useCanvas';
-import { HUB_COLORS } from './colors';
+import { HUB_COLORS, getRepoColorIndex } from './colors';
 
 interface CanvasProps {
   nodes: CanvasNode[];
@@ -15,6 +15,7 @@ interface CanvasProps {
   onFiltersChange: (filters: Set<string>) => void;
   availableStatuses: Map<string, number>;
   simRef: React.MutableRefObject<d3.Simulation<CanvasNode, SimLink> | null>;
+  hoveredRepo: string | null;
 }
 
 interface Transform {
@@ -91,6 +92,7 @@ export function Canvas({
   nodes, links, selectedId, onSelect,
   panToRepo, onPanComplete, newIds,
   activeFilters, onFiltersChange, availableStatuses, simRef,
+  hoveredRepo,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -106,6 +108,7 @@ export function Canvas({
   const centeredRef = useRef(false);
   const selectedIdRef = useRef(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
+  const hoveredRepoRef = useRef<string | null>(hoveredRepo);
   const bloomRef = useRef<Map<string, number>>(new Map());
 
   // Dynamic zoom tracking
@@ -120,6 +123,7 @@ export function Canvas({
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { linksRef.current = links; }, [links]);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { hoveredRepoRef.current = hoveredRepo; }, [hoveredRepo]);
 
   // Detect filter changes and reset userInteracted so dynamic zoom resumes
   const filterKey = activeFilters ? [...activeFilters].sort().join(',') : '__all__';
@@ -212,7 +216,16 @@ export function Canvas({
       const ls = linksRef.current;
       const hovId = hoveredIdRef.current;
       const selId = selectedIdRef.current;
+      const hovRepo = hoveredRepoRef.current;
       const now = Date.now();
+
+      // Lerp highlightAlpha on all nodes toward their target
+      for (const n of ns) {
+        const nodeRepo = n.type === 'hub' ? n.repo : n.repo;
+        const target = hovRepo === null ? 1.0 : (nodeRepo === hovRepo ? 1.0 : 0.25);
+        const cur = n.highlightAlpha ?? 1.0;
+        n.highlightAlpha = cur + (target - cur) * 0.12;
+      }
 
       ctx.clearRect(0, 0, W, H);
       ctx.save();
@@ -271,6 +284,7 @@ export function Canvas({
 
         if ((hubJobCounts.get(hub.id) ?? 0) > 30) continue;
         const hubColor = HUB_COLORS[hub.colorIndex];
+        const spokeAlpha = hub.highlightAlpha ?? 1.0;
 
         const dx = tx2 - sx;
         const dy = ty2 - sy;
@@ -282,12 +296,14 @@ export function Canvas({
         const mx = (sx + tx2) / 2 + px * wobble;
         const my = (sy + ty2) / 2 + py * wobble;
 
+        ctx.globalAlpha = spokeAlpha;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.quadraticCurveTo(mx, my, tx2, ty2);
         ctx.strokeStyle = hubColor.fill + '2e';
         ctx.lineWidth = 1;
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
 
       // 3. Dependency curves between job nodes
@@ -317,6 +333,16 @@ export function Canvas({
         const color = HUB_COLORS[hub.colorIndex];
         const isHovered = hovId === hub.id;
         const isSelected = selId === hub.id;
+        const isRepoHovered = hovRepo === hub.repo;
+        const alpha = hub.highlightAlpha ?? 1.0;
+
+        ctx.globalAlpha = alpha;
+
+        // Extra outer glow ring when this repo is hovered from sidebar
+        if (isRepoHovered) {
+          ctx.shadowColor = color.fill;
+          ctx.shadowBlur = 30;
+        }
 
         const grd = ctx.createRadialGradient(hx, hy, 0, hx, hy, hubR * 2.2);
         grd.addColorStop(0, color.fill + 'aa');
@@ -327,10 +353,24 @@ export function Canvas({
         ctx.fillStyle = grd;
         ctx.fill();
 
+        // Extra glow ring at 1.6x radius for repo hover
+        if (isRepoHovered) {
+          const outerGrd = ctx.createRadialGradient(hx, hy, hubR, hx, hy, hubR * 1.6);
+          outerGrd.addColorStop(0, color.fill + '55');
+          outerGrd.addColorStop(1, 'transparent');
+          ctx.beginPath();
+          ctx.arc(hx, hy, hubR * 1.6, 0, Math.PI * 2);
+          ctx.fillStyle = outerGrd;
+          ctx.fill();
+        }
+
         ctx.beginPath();
         ctx.arc(hx, hy, hubR, 0, Math.PI * 2);
         ctx.fillStyle = color.fill;
         ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
 
         const shine = ctx.createRadialGradient(hx - hubR * 0.3, hy - hubR * 0.3, 0, hx - hubR * 0.3, hy - hubR * 0.3, hubR * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.55)');
@@ -356,15 +396,16 @@ export function Canvas({
         ctx.fillStyle = 'rgba(80,60,40,0.5)';
         ctx.fillText(`${hub.totalCount} jobs`, hx, hy + hubR + 30);
 
-        if (isHovered || isSelected) {
+        if (isHovered || isSelected || isRepoHovered) {
           ctx.beginPath();
           ctx.arc(hx, hy, hubR + 6, 0, Math.PI * 2);
           ctx.strokeStyle = color.fill;
           ctx.lineWidth = isSelected ? 3 : 2;
-          ctx.globalAlpha = 0.7;
+          ctx.globalAlpha = alpha * 0.7;
           ctx.stroke();
-          ctx.globalAlpha = 1;
         }
+
+        ctx.globalAlpha = 1;
       }
 
       // 5. Job orbs
@@ -379,6 +420,8 @@ export function Canvas({
         const isRunning = status?.toLowerCase() === 'running';
         const isSelected = selId === jn.id;
         const isHovered = hovId === jn.id;
+        const isRepoHovered = hovRepo === jn.repo;
+        const alpha = jn.highlightAlpha ?? 1.0;
 
         const fill = statusFill(status);
         const glowColor = statusGlowColor(status);
@@ -397,10 +440,17 @@ export function Canvas({
         const r = isRunning ? jobR + Math.sin(now / 600) * 2 : jobR;
 
         ctx.save();
+        ctx.globalAlpha = alpha;
+
         if (scale < 1) {
           ctx.translate(rx, ry);
           ctx.scale(scale, scale);
           ctx.translate(-rx, -ry);
+        }
+
+        if (isRepoHovered) {
+          ctx.shadowColor = HUB_COLORS[getRepoColorIndex(jn.repo)].fill;
+          ctx.shadowBlur = 18;
         }
 
         const grd = ctx.createRadialGradient(rx, ry, 0, rx, ry, r * 1.8);
@@ -413,8 +463,13 @@ export function Canvas({
 
         ctx.beginPath();
         ctx.arc(rx, ry, r, 0, Math.PI * 2);
-        ctx.fillStyle = fill;
+        // Full opacity fill when repo hovered
+        ctx.fillStyle = isRepoHovered ? fill : fill;
+        ctx.globalAlpha = isRepoHovered ? alpha : alpha;
         ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
 
         const shine = ctx.createRadialGradient(rx - r * 0.35, ry - r * 0.3, 0, rx - r * 0.35, ry - r * 0.3, r * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.45)');
@@ -429,9 +484,20 @@ export function Canvas({
           ctx.arc(rx, ry, r + 5, 0, Math.PI * 2);
           ctx.strokeStyle = fill;
           ctx.lineWidth = isSelected ? 2.5 : 1.5;
-          ctx.globalAlpha = 0.7;
+          ctx.globalAlpha = alpha * 0.7;
           ctx.stroke();
-          ctx.globalAlpha = 1;
+          ctx.globalAlpha = alpha;
+        }
+
+        // Thin colored ring for repo-hovered orbs
+        if (isRepoHovered) {
+          ctx.beginPath();
+          ctx.arc(rx, ry, r + 3, 0, Math.PI * 2);
+          ctx.strokeStyle = HUB_COLORS[getRepoColorIndex(jn.repo)].fill;
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.stroke();
+          ctx.globalAlpha = alpha;
         }
 
         if (isRunning) {

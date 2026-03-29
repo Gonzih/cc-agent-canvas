@@ -7,6 +7,8 @@ interface SidebarProps {
   selectedRepo: string | null;
   onSelectRepo: (repo: string | null) => void;
   connected: boolean;
+  hoveredRepo?: string | null;
+  onHoverRepo?: (repo: string | null) => void;
 }
 
 function getRepoName(repoUrl?: string): string {
@@ -37,7 +39,7 @@ function buildRepoStats(jobs: Job[]): RepoStats[] {
   return [...map.values()].sort((a, b) => b.running - a.running || b.total - a.total);
 }
 
-export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: SidebarProps) {
+export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected, hoveredRepo, onHoverRepo }: SidebarProps) {
   const repos = buildRepoStats(jobs);
 
   return (
@@ -117,20 +119,26 @@ export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: Sidebar
           const color = getRepoColor(r.name);
           const hubColor = HUB_COLORS[getRepoColorIndex(r.name)];
           const isSelected = selectedRepo === r.name;
+          const isHovered = hoveredRepo === r.name;
           return (
             <motion.button
               key={r.name}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => onSelectRepo(isSelected ? null : r.name)}
+              onMouseEnter={() => onHoverRepo?.(r.name)}
+              onMouseLeave={() => onHoverRepo?.(null)}
               style={{
                 width: '100%', textAlign: 'left', padding: '9px 10px',
-                marginBottom: 3, borderRadius: 12, border: 'none',
-                background: isSelected ? `${color}28` : 'transparent',
+                marginBottom: 3, borderRadius: 12,
+                border: 'none',
+                borderLeft: isHovered ? `3px solid ${hubColor.fill}` : '3px solid transparent',
+                background: isSelected ? `${color}28` : isHovered ? `${hubColor.fill}14` : 'transparent',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 fontFamily: 'DM Sans, system-ui, sans-serif',
-                transition: 'background 0.15s',
+                transition: 'background 0.15s, border-color 0.15s',
+                paddingLeft: isHovered ? 7 : 10,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -141,13 +149,16 @@ export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: Sidebar
                   flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.9)',
-                  boxShadow: isSelected ? `0 0 8px ${hubColor.fill}` : `0 0 4px ${hubColor.glow}`,
+                  boxShadow: isSelected || isHovered ? `0 0 8px ${hubColor.fill}` : `0 0 4px ${hubColor.glow}`,
                 }}>
                   {r.name[0]?.toUpperCase()}
                 </div>
                 <span style={{
-                  fontSize: 12, color: '#3D2E1E', fontWeight: isSelected ? 600 : 400,
+                  fontSize: 12,
+                  color: isHovered ? hubColor.fill : '#3D2E1E',
+                  fontWeight: isSelected || isHovered ? 600 : 400,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  transition: 'color 0.15s',
                 }}>
                   {r.name}
                 </span>
