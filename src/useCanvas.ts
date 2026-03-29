@@ -55,14 +55,11 @@ export function useCanvas(jobs: Job[]) {
     }
 
     // Count total jobs per repo (before visibility filter)
-    const totalByRepo = new Map<string, number>();
+    const totalCountByRepo = new Map<string, number>();
     for (const j of jobs) {
       const repo = getRepo(j);
-      totalByRepo.set(repo, (totalByRepo.get(repo) ?? 0) + 1);
+      totalCountByRepo.set(repo, (totalCountByRepo.get(repo) ?? 0) + 1);
     }
-
-    // Only simulate visible jobs (top 60 per repo), hub nodes always included
-    const visibleJobs = jobs.filter(j => j.visible !== false);
 
     // Build hub nodes — one per repo, arranged on a circle
     const hubNodes: HubNode[] = repos.map((repo, i) => {
@@ -76,13 +73,14 @@ export function useCanvas(jobs: Job[]) {
         repo,
         label: repo,
         colorIndex: getRepoColorIndex(repo),
-        totalCount: totalByRepo.get(repo) ?? 0,
+        totalCount: totalCountByRepo.get(repo) ?? 0,
         x: pos?.x ?? WIDTH / 2 + Math.cos(angle) * radius,
         y: pos?.y ?? HEIGHT / 2 + Math.sin(angle) * radius,
       };
     });
 
-    // Build job nodes (visible only)
+    // Build job nodes — only simulate visible jobs (visible !== false)
+    const visibleJobs = jobs.filter(j => j.visible !== false);
     const jobNodes: JobNode[] = visibleJobs.map(j => {
       const pos = existingPositions.get(j.id);
       const hub = hubNodes.find(h => h.repo === getRepo(j));
