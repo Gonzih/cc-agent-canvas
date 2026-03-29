@@ -7,15 +7,46 @@ import { Canvas } from './Canvas';
 import { DetailPanel } from './DetailPanel';
 import type { Job } from './types';
 
+const ALL_STATUSES = ['running', 'done', 'failed', 'cancelled', 'pending'];
+
 export default function App() {
   const { jobs, connected } = useWebSocket();
-  const { nodes, links } = useCanvas(jobs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
   const prevJobIds = useRef<Set<string>>(new Set());
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
+  // Filter state: null means all active; Set means specific statuses are active
+  const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null);
+
+  // Derive available statuses with counts from current jobs
+  const availableStatuses = useMemo<Map<string, number>>(() => {
+    const counts = new Map<string, number>();
+    for (const j of jobs) {
+      const s = j.status?.toLowerCase() ?? 'pending';
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    // Sort in preferred order
+    const ordered = new Map<string, number>();
+    for (const s of ALL_STATUSES) {
+      if (counts.has(s)) ordered.set(s, counts.get(s)!);
+    }
+    // Any unknown statuses appended
+    for (const [s, c] of counts) {
+      if (!ordered.has(s)) ordered.set(s, c);
+    }
+    return ordered;
+  }, [jobs]);
+
+  // Effective filters passed to useCanvas: empty array = all; specific array = filtered
+  const effectiveFilters = useMemo<string[]>(() => {
+    if (activeFilters === null) return [];
+    return [...activeFilters];
+  }, [activeFilters]);
+
+  const { nodes, links, simRef } = useCanvas(jobs, effectiveFilters);
 
   // Dismiss loading overlay on first data
   useEffect(() => {
@@ -48,6 +79,10 @@ export default function App() {
   const handleSelectRepo = (repo: string | null) => {
     setSelectedRepo(repo);
     if (repo) setPanToRepo(repo);
+  };
+
+  const handleFiltersChange = (filters: Set<string>) => {
+    setActiveFilters(filters);
   };
 
   return (
@@ -83,6 +118,10 @@ export default function App() {
         panToRepo={panToRepo}
         onPanComplete={() => setPanToRepo(null)}
         newIds={newIds}
+        activeFilters={activeFilters}
+        onFiltersChange={handleFiltersChange}
+        availableStatuses={availableStatuses}
+        simRef={simRef}
       />
       <DetailPanel
         job={selectedJob}
