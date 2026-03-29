@@ -6,20 +6,9 @@ import { Canvas } from './Canvas';
 import { DetailPanel } from './DetailPanel';
 import type { OrbNode } from './types';
 
-const MAX_DISPLAY_JOBS = 300;
-
 export default function App() {
   const { jobs, connected } = useWebSocket();
-
-  // Limit to most recent 300 jobs for performance
-  const displayJobs = useMemo(() => {
-    if (jobs.length <= MAX_DISPLAY_JOBS) return jobs;
-    return [...jobs]
-      .sort((a, b) => (b.startedAt || b.created_at || '').localeCompare(a.startedAt || a.created_at || ''))
-      .slice(0, MAX_DISPLAY_JOBS);
-  }, [jobs]);
-
-  const { nodes } = useCanvas(displayJobs);
+  const { nodes, clusterCenters } = useCanvas(jobs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
@@ -56,19 +45,20 @@ export default function App() {
     <div style={{ background: '#F5F0E8', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <Sidebar
         jobs={jobs}
-        displayCount={displayJobs.length}
+        displayCount={jobs.length}
         selectedRepo={selectedRepo}
         onSelectRepo={handleSelectRepo}
         connected={connected}
       />
       <Canvas
         nodes={nodes}
-        jobs={displayJobs}
+        jobs={jobs}
         selectedId={selectedId}
         onSelect={setSelectedId}
         panToRepo={panToRepo}
         onPanComplete={() => setPanToRepo(null)}
         newIds={newIds}
+        clusterCenters={clusterCenters}
       />
       <DetailPanel
         job={selectedJob}

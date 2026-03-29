@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getStatusStyle } from './colors';
 import type { OrbNode } from './types';
@@ -24,20 +24,50 @@ function timeSince(ts?: string): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
+// Extract first meaningful line from task text, stripping markdown
+function extractTitle(task?: string, fallback?: string): string {
+  if (!task) return fallback ?? '';
+  const lines = task.split('\n');
+  for (const raw of lines) {
+    const line = raw
+      .replace(/^#+\s*/, '')
+      .replace(/\*\*/g, '')
+      .trim();
+    if (line.length > 0) return line.slice(0, 80);
+  }
+  return fallback ?? '';
+}
+
+function lineColor(line: string): string {
+  if (line.startsWith('[tool]')) return '#60a5fa';
+  if (line.startsWith('[cc-agent]')) return '#94a3b8';
+  if (/error|Error|failed/i.test(line)) return '#D47B7B';
+  if (line.startsWith('##') || line.startsWith('**')) return '#7DC4A0';
+  return '#4a3f35';
+}
+
 export function DetailPanel({ job, onClose }: DetailPanelProps) {
   const [outputLines, setOutputLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!job) { setOutputLines([]); return; }
     setLoading(true);
     fetch(`/api/job/${job.id}/output`)
       .then(r => r.json())
-      .then(lines => { setOutputLines(lines); setLoading(false); })
+      .then((lines: string[]) => { setOutputLines(lines); setLoading(false); })
       .catch(() => setLoading(false));
   }, [job?.id]);
 
+  // Auto-scroll to bottom when output arrives or panel opens
+  useEffect(() => {
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
+  }, [outputLines]);
+
   const style = getStatusStyle(job?.status);
+  const title = extractTitle(job?.task, job?.title || job?.id);
+  const repoUrl = job?.repo_url || job?.repoUrl;
 
   return (
     <AnimatePresence>
@@ -64,7 +94,7 @@ export function DetailPanel({ job, onClose }: DetailPanelProps) {
             fontFamily: 'DM Sans, system-ui, sans-serif',
           }}
         >
-          {/* Header */}
+          {/* Header — title */}
           <div style={{
             padding: '20px 20px 16px',
             borderBottom: '1px solid rgba(180,160,130,0.2)',
@@ -72,18 +102,12 @@ export function DetailPanel({ job, onClose }: DetailPanelProps) {
             alignItems: 'flex-start',
             gap: 12,
           }}>
-            <div style={{
-              width: 12, height: 12, borderRadius: '50%',
-              background: style.fill,
-              boxShadow: `0 0 8px ${style.glow}`,
-              marginTop: 4, flexShrink: 0,
-            }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2E1E', lineHeight: 1.4, wordBreak: 'break-word' }}>
-                {job.title || job.task || job.id}
-              </div>
-              <div style={{ fontSize: 11, color: '#8B7355', marginTop: 4 }}>
-                {getRepoName(job.repo_url)} · {job.namespace}
+              <div style={{
+                fontSize: 14, fontWeight: 600, color: '#3D2E1E',
+                lineHeight: 1.4, wordBreak: 'break-word',
+              }}>
+                {title}
               </div>
             </div>
             <button
@@ -98,9 +122,9 @@ export function DetailPanel({ job, onClose }: DetailPanelProps) {
             </button>
           </div>
 
-          {/* Meta */}
+          {/* Status badge + repo link */}
           <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(180,160,130,0.12)' }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{
                 fontSize: 11, padding: '3px 10px', borderRadius: 12,
                 background: `${style.fill}22`, color: '#5A4535',
@@ -109,28 +133,52 @@ export function DetailPanel({ job, onClose }: DetailPanelProps) {
                 {job.status || 'unknown'}
               </span>
               {job.created_at && (
-                <span style={{ fontSize: 11, color: '#8B7355', padding: '3px 0' }}>
+                <span style={{ fontSize: 11, color: '#8B7355' }}>
                   {timeSince(job.created_at)}
                 </span>
               )}
             </div>
+            {/* Repo link */}
+            {repoUrl && (
+              <div style={{ marginTop: 8 }}>
+                <a
+                  href={repoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: 11, color: '#7BB3D4', textDecoration: 'none',
+                    fontWeight: 500,
+                  }}
+                >
+                  {getRepoName(repoUrl)}
+                </a>
+                {job.namespace && (
+                  <span style={{ fontSize: 11, color: '#B0998A' }}> · {job.namespace}</span>
+                )}
+              </div>
+            )}
             {job.id && (
-              <div style={{ fontSize: 10, color: '#B0998A', marginTop: 8, fontFamily: 'monospace' }}>
+              <div style={{ fontSize: 10, color: '#B0998A', marginTop: 6, fontFamily: 'monospace' }}>
                 {job.id}
               </div>
             )}
           </div>
 
-          {/* Output */}
+          {/* Output — color-coded, auto-scroll */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '12px 0 0' }}>
-            <div style={{ fontSize: 11, color: '#8B7355', fontWeight: 600, padding: '0 20px 8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Recent output
-            </div>
             <div style={{
-              flex: 1, overflowY: 'auto', padding: '0 16px 16px',
-              fontSize: 11, fontFamily: 'monospace', lineHeight: 1.6,
-              color: '#4A3828',
+              fontSize: 11, color: '#8B7355', fontWeight: 600,
+              padding: '0 20px 8px', textTransform: 'uppercase', letterSpacing: '0.06em',
             }}>
+              Output
+            </div>
+            <div
+              ref={outputRef}
+              style={{
+                flex: 1, overflowY: 'auto', padding: '0 16px 16px',
+                fontSize: 11, fontFamily: 'monospace', lineHeight: 1.6,
+              }}
+            >
               {loading ? (
                 <div style={{ color: '#B0998A', padding: '8px 0' }}>loading…</div>
               ) : outputLines.length === 0 ? (
@@ -139,9 +187,10 @@ export function DetailPanel({ job, onClose }: DetailPanelProps) {
                 outputLines.map((line, i) => (
                   <div key={i} style={{
                     padding: '1px 0',
-                    borderBottom: '1px solid rgba(180,160,130,0.06)',
+                    borderBottom: '1px solid rgba(180,130,80,0.06)',
                     wordBreak: 'break-word',
                     whiteSpace: 'pre-wrap',
+                    color: lineColor(line),
                   }}>
                     {line}
                   </div>
