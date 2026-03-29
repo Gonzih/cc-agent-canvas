@@ -229,6 +229,16 @@ export function Canvas({
         hubJobCounts.set(hubId, (hubJobCounts.get(hubId) ?? 0) + 1);
       }
 
+      // 0. Black hole — subtle warm glow at simulation center (1500, 1500)
+      const SIM_CENTER = 1500;
+      const bhGrd = ctx.createRadialGradient(SIM_CENTER, SIM_CENTER, 0, SIM_CENTER, SIM_CENTER, 40);
+      bhGrd.addColorStop(0, 'rgba(100,80,60,0.12)');
+      bhGrd.addColorStop(1, 'rgba(100,80,60,0)');
+      ctx.fillStyle = bhGrd;
+      ctx.beginPath();
+      ctx.arc(SIM_CENTER, SIM_CENTER, 40, 0, Math.PI * 2);
+      ctx.fill();
+
       // 1. Hub glow blobs (large radial gradient, very low opacity)
       for (const hub of hubs) {
         const hx = hub.x ?? 0;
