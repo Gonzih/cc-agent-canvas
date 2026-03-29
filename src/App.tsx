@@ -39,7 +39,7 @@ export default function App() {
     return [...activeFilters];
   }, [activeFilters]);
 
-  const { nodes, links, simRef, forceMultiplierRef } = useCanvas(jobs, effectiveFilters);
+  const { nodes, links, simRef, blackHoleStrengthRef, sunFieldRef, planetFieldRef } = useCanvas(jobs, effectiveFilters);
 
   // Dismiss loading overlay on first data
   useEffect(() => {
@@ -117,7 +117,9 @@ export default function App() {
         onFiltersChange={handleFiltersChange}
         availableStatuses={availableStatuses}
         simRef={simRef}
-        forceMultiplierRef={forceMultiplierRef}
+        blackHoleStrengthRef={blackHoleStrengthRef}
+        sunFieldRef={sunFieldRef}
+        planetFieldRef={planetFieldRef}
         hoveredRepo={hoveredRepo}
       />
       <DetailPanel
