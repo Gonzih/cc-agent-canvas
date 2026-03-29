@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { getRepoColor, getStatusStyle } from './colors';
+import { getRepoColor, getRepoColorIndex, HUB_COLORS, getStatusStyle } from './colors';
 import type { Job } from './types';
 
 interface SidebarProps {
@@ -115,6 +115,7 @@ export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: Sidebar
 
         {repos.map(r => {
           const color = getRepoColor(r.name);
+          const hubColor = HUB_COLORS[getRepoColorIndex(r.name)];
           const isSelected = selectedRepo === r.name;
           return (
             <motion.button
@@ -125,7 +126,7 @@ export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: Sidebar
               style={{
                 width: '100%', textAlign: 'left', padding: '9px 10px',
                 marginBottom: 3, borderRadius: 12, border: 'none',
-                background: isSelected ? `${color}22` : 'transparent',
+                background: isSelected ? `${color}28` : 'transparent',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 fontFamily: 'DM Sans, system-ui, sans-serif',
@@ -133,12 +134,17 @@ export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: Sidebar
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                {/* Colored pill matching hub color */}
+                {/* Mini hub orb — matches the canvas hub orb */}
                 <div style={{
-                  width: 10, height: 10, borderRadius: '50%',
-                  background: color, flexShrink: 0,
-                  boxShadow: isSelected ? `0 0 8px ${color}` : 'none',
-                }} />
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: hubColor.fill,
+                  flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.9)',
+                  boxShadow: isSelected ? `0 0 8px ${hubColor.fill}` : `0 0 4px ${hubColor.glow}`,
+                }}>
+                  {r.name[0]?.toUpperCase()}
+                </div>
                 <span style={{
                   fontSize: 12, color: '#3D2E1E', fontWeight: isSelected ? 600 : 400,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

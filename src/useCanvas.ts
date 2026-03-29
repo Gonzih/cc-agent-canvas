@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import type { Job, CanvasNode, HubNode, JobNode } from './types';
-import { getRepoColor } from './colors';
+import { getRepoColorIndex } from './colors';
 
 const WIDTH = 3000;
 const HEIGHT = 3000;
@@ -27,11 +27,8 @@ export function useCanvas(jobs: Job[]) {
 
     // Assign stable color indices per repo
     const repos = [...new Set(jobs.map(getRepo))];
-    const repoColorIdx = new Map<string, number>();
-    repos.forEach((repo, i) => {
-      getRepoColor(repo); // register in colors module
-      repoColorIdx.set(repo, i);
-    });
+    // Register repos in color module to get stable indices
+    repos.forEach(repo => getRepoColorIndex(repo));
 
     // Preserve existing positions
     const existingById = new Map<string, { x: number; y: number }>();
@@ -49,7 +46,7 @@ export function useCanvas(jobs: Job[]) {
         nodeType: 'hub' as const,
         id: hubId,
         repo,
-        colorIdx: i % 8,
+        colorIdx: getRepoColorIndex(repo),
         x: existing?.x ?? WIDTH / 2 + Math.cos(angle) * radius,
         y: existing?.y ?? HEIGHT / 2 + Math.sin(angle) * radius,
       };

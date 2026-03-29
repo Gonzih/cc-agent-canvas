@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { CanvasNode, HubNode, JobNode } from './types';
-import { getRepoColorByIdx, getStatusStyle } from './colors';
+import { getHubColorByIdx, getStatusStyle } from './colors';
 
 interface CanvasProps {
   nodes: CanvasNode[];
@@ -130,7 +130,7 @@ export function Canvas({
       }
       // --- Layer 1: Hub glow blobs ---
       for (const hub of hubs) {
-        const fill = getRepoColorByIdx(hub.colorIdx);
+        const fill = getHubColorByIdx(hub.colorIdx).fill;
         const grd = ctx.createRadialGradient(hub.x, hub.y, 0, hub.x, hub.y, 170);
         grd.addColorStop(0, hexToRgba(fill, 0.10));
         grd.addColorStop(0.5, hexToRgba(fill, 0.05));
@@ -143,7 +143,7 @@ export function Canvas({
 
       // --- Layer 2: Spoke lines (hub → job) with time wobble ---
       for (const hub of hubs) {
-        const fill = getRepoColorByIdx(hub.colorIdx);
+        const fill = getHubColorByIdx(hub.colorIdx).fill;
         const repoJobs = jobsByRepo.get(hub.repo) ?? [];
         for (const jn of repoJobs) {
           const wobble = Math.sin(now / 2200 + (jn.index ?? 0) * 0.8) * 7;
@@ -259,7 +259,7 @@ export function Canvas({
 
       // --- Layer 5: Hub orbs ---
       for (const hub of hubs) {
-        const fill = getRepoColorByIdx(hub.colorIdx);
+        const fill = getHubColorByIdx(hub.colorIdx).fill;
         const isHovered = hovId === hub.id;
 
         // Large glow
