@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getStatusStyle } from './colors';
-import type { OrbNode } from './types';
+import type { Job } from './types';
 
 interface DetailPanelProps {
-  job: OrbNode | null;
+  job: Job | null;
   onClose: () => void;
 }
 

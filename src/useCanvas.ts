@@ -1,16 +1,29 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import type { Job, OrbNode } from './types';
+import type { Job } from './types';
+import { getRepoColorIndex } from './colors';
 
-interface SimLink {
-  source: string;
-  target: string;
+export interface HubNode extends d3.SimulationNodeDatum {
+  type: 'hub';
+  id: string;
+  repo: string;
+  label: string;
+  colorIndex: number;
 }
 
-export interface ClusterCenter {
-  x: number;
-  y: number;
-  hue: number;
+export interface JobNode extends d3.SimulationNodeDatum {
+  type: 'job';
+  id: string;
+  repo: string;
+  job: Job;
+}
+
+export type CanvasNode = HubNode | JobNode;
+
+export interface SimLink {
+  source: CanvasNode;
+  target: CanvasNode;
+  linkType: 'hub-spoke' | 'dep';
 }
 
 const WIDTH = 3000;
@@ -21,79 +34,96 @@ function getRepo(j: Job): string {
 }
 
 export function useCanvas(jobs: Job[]) {
-  const [nodes, setNodes] = useState<OrbNode[]>([]);
-  const [clusterCenters, setClusterCenters] = useState<Record<string, ClusterCenter>>({});
-  const simRef = useRef<d3.Simulation<OrbNode, SimLink> | null>(null);
-  // stable ref for reading existing positions inside the effect without stale closure
-  const nodesRef = useRef<OrbNode[]>([]);
+  const [nodes, setNodes] = useState<CanvasNode[]>([]);
+  const [links, setLinks] = useState<SimLink[]>([]);
+  const simRef = useRef<d3.Simulation<CanvasNode, SimLink> | null>(null);
+  const nodesRef = useRef<CanvasNode[]>([]);
   nodesRef.current = nodes;
 
   useEffect(() => {
     if (!jobs.length) return;
 
-    // Build cluster centers — each repo gets an angular position on a circle
     const repos = [...new Set(jobs.map(getRepo))];
-    const centers: Record<string, ClusterCenter> = {};
-    repos.forEach((repo, i) => {
-      const angle = (i / repos.length) * Math.PI * 2 - Math.PI / 2;
-      const radius = Math.min(WIDTH, HEIGHT) * 0.32;
-      centers[repo] = {
-        x: WIDTH / 2 + Math.cos(angle) * radius,
-        y: HEIGHT / 2 + Math.sin(angle) * radius,
-        hue: (i / repos.length) * 360,
-      };
-    });
-    setClusterCenters(centers);
 
     // Preserve existing node positions across re-runs
-    const existingPositions: Record<string, { x: number; y: number }> = {};
+    const existingPositions = new Map<string, { x: number; y: number }>();
     for (const n of nodesRef.current) {
-      existingPositions[n.id] = { x: n.x, y: n.y };
+      if (n.x !== undefined && n.y !== undefined) {
+        existingPositions.set(n.id, { x: n.x!, y: n.y! });
+      }
     }
 
-    const newNodes: OrbNode[] = jobs.map(j => {
-      const pos = existingPositions[j.id];
-      const center = centers[getRepo(j)];
+    // Build hub nodes — one per repo, arranged on a circle
+    const hubNodes: HubNode[] = repos.map((repo, i) => {
+      const angle = (i / repos.length) * Math.PI * 2 - Math.PI / 2;
+      const radius = Math.min(WIDTH, HEIGHT) * 0.32;
+      const hubId = `hub:${repo}`;
+      const pos = existingPositions.get(hubId);
       return {
-        ...j,
-        x: pos?.x ?? (center?.x ?? WIDTH / 2) + (Math.random() - 0.5) * 200,
-        y: pos?.y ?? (center?.y ?? HEIGHT / 2) + (Math.random() - 0.5) * 200,
+        type: 'hub' as const,
+        id: hubId,
+        repo,
+        label: repo,
+        colorIndex: getRepoColorIndex(repo),
+        x: pos?.x ?? WIDTH / 2 + Math.cos(angle) * radius,
+        y: pos?.y ?? HEIGHT / 2 + Math.sin(angle) * radius,
       };
     });
 
-    const nodeIdSet = new Set(newNodes.map(n => n.id));
-    const links: SimLink[] = [];
-    jobs.forEach(j => {
-      const parents = j.dependsOn?.length
-        ? j.dependsOn
-        : j.depends_on ? [j.depends_on] : [];
-      parents.forEach(parentId => {
-        if (nodeIdSet.has(parentId) && nodeIdSet.has(j.id)) {
-          links.push({ source: parentId, target: j.id });
-        }
-      });
+    // Build job nodes
+    const jobNodes: JobNode[] = jobs.map(j => {
+      const pos = existingPositions.get(j.id);
+      const hub = hubNodes.find(h => h.repo === getRepo(j));
+      return {
+        type: 'job' as const,
+        id: j.id,
+        repo: getRepo(j),
+        job: j,
+        x: pos?.x ?? (hub?.x ?? WIDTH / 2) + (Math.random() - 0.5) * 120,
+        y: pos?.y ?? (hub?.y ?? HEIGHT / 2) + (Math.random() - 0.5) * 120,
+      };
     });
+
+    const allNodes: CanvasNode[] = [...hubNodes, ...jobNodes];
+    const nodeIdSet = new Set(allNodes.map(n => n.id));
+
+    // Build links
+    const rawLinks: { source: string; target: string; linkType: 'hub-spoke' | 'dep' }[] = [];
+
+    // Hub-spoke links: each job → its repo hub
+    for (const jn of jobNodes) {
+      const hubId = `hub:${jn.repo}`;
+      if (nodeIdSet.has(hubId)) {
+        rawLinks.push({ source: jn.id, target: hubId, linkType: 'hub-spoke' });
+      }
+    }
+
+    // Dependency links between jobs
+    for (const j of jobs) {
+      const parents = j.dependsOn?.length ? j.dependsOn : j.depends_on ? [j.depends_on] : [];
+      for (const parentId of parents) {
+        if (nodeIdSet.has(parentId) && nodeIdSet.has(j.id)) {
+          rawLinks.push({ source: parentId, target: j.id, linkType: 'dep' });
+        }
+      }
+    }
 
     if (simRef.current) simRef.current.stop();
 
-    let ticks = 0;
-    const sim = d3.forceSimulation<OrbNode, SimLink>(newNodes)
-      .force('link', d3.forceLink<OrbNode, SimLink>(links)
+    const sim = d3.forceSimulation<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>(allNodes)
+      .force('link', d3.forceLink<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>(rawLinks)
         .id(d => d.id)
-        .distance(80)
-        .strength(0.3))
-      .force('x', d3.forceX((n: OrbNode) => centers[getRepo(n)]?.x ?? WIDTH / 2).strength(0.12))
-      .force('y', d3.forceY((n: OrbNode) => centers[getRepo(n)]?.y ?? HEIGHT / 2).strength(0.12))
-      .force('charge', d3.forceManyBody().strength(-60))
-      .force('collide', d3.forceCollide(28))
-      .alphaDecay(0.02)
+        .strength(l => l.linkType === 'hub-spoke' ? 0.4 : 0.15)
+        .distance(l => l.linkType === 'hub-spoke' ? 100 : 70))
+      .force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? -800 : -80))
+      .force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? 55 : 22))
+      .force('center', d3.forceCenter(WIDTH / 2, HEIGHT / 2).strength(0.03))
+      .alphaDecay(0.005)
+      .alphaMin(0.001) // never fully stops — gives Gource living feel
       .on('tick', () => {
-        ticks++;
-        if (ticks >= 200) sim.stop();
         setNodes([...sim.nodes()]);
-      })
-      .on('end', () => {
-        setNodes([...sim.nodes()]);
+        const lf = sim.force<d3.ForceLink<CanvasNode, SimLink>>('link');
+        if (lf) setLinks([...(lf.links() as SimLink[])]);
       });
 
     simRef.current = sim;
@@ -102,12 +132,5 @@ export function useCanvas(jobs: Job[]) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs.map(j => j.id + j.status).join(',')]);
 
-  const getLinks = useCallback((): SimLink[] => {
-    if (!simRef.current) return [];
-    const linkForce = simRef.current.force<d3.ForceLink<OrbNode, SimLink>>('link');
-    if (!linkForce) return [];
-    return linkForce.links() as SimLink[];
-  }, []);
-
-  return { nodes, clusterCenters, getLinks };
+  return { nodes, links };
 }
