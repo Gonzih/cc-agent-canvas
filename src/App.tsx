@@ -4,11 +4,11 @@ import { useCanvas } from './useCanvas';
 import { Sidebar } from './Sidebar';
 import { Canvas } from './Canvas';
 import { DetailPanel } from './DetailPanel';
-import type { OrbNode } from './types';
+import type { JobNode } from './types';
 
 export default function App() {
   const { jobs, connected } = useWebSocket();
-  const { nodes, clusterCenters } = useCanvas(jobs);
+  const { nodes, nodesRef } = useCanvas(jobs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
@@ -31,9 +31,10 @@ export default function App() {
     prevJobIds.current = current;
   }, [jobs]);
 
-  const selectedJob = useMemo<OrbNode | null>(() => {
+  const selectedJob = useMemo<JobNode | null>(() => {
     if (!selectedId) return null;
-    return nodes.find(n => n.id === selectedId) ?? null;
+    const n = nodes.find(n => n.nodeType === 'job' && n.id === selectedId);
+    return n?.nodeType === 'job' ? (n as JobNode) : null;
   }, [selectedId, nodes]);
 
   const handleSelectRepo = (repo: string | null) => {
@@ -45,20 +46,19 @@ export default function App() {
     <div style={{ background: '#F5F0E8', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <Sidebar
         jobs={jobs}
-        displayCount={jobs.length}
         selectedRepo={selectedRepo}
         onSelectRepo={handleSelectRepo}
         connected={connected}
       />
       <Canvas
         nodes={nodes}
-        jobs={jobs}
+        nodesRef={nodesRef}
         selectedId={selectedId}
         onSelect={setSelectedId}
+        onSelectRepo={handleSelectRepo}
         panToRepo={panToRepo}
         onPanComplete={() => setPanToRepo(null)}
         newIds={newIds}
-        clusterCenters={clusterCenters}
       />
       <DetailPanel
         job={selectedJob}

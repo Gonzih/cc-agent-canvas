@@ -12,16 +12,47 @@ export interface Job {
   depends_on?: string;
   dependsOn?: string[];
   resumedFrom?: string;
-  // d3 simulation fields
-  x?: number;
-  y?: number;
+}
+
+export interface HubNode {
+  nodeType: 'hub';
+  id: string;       // 'hub:' + repo name
+  repo: string;
+  colorIdx: number;
+  x: number;
+  y: number;
   vx?: number;
   vy?: number;
   fx?: number | null;
   fy?: number | null;
+  index?: number;
 }
 
-export interface OrbNode extends Job {
+export interface JobNode {
+  nodeType: 'job';
+  id: string;
+  repo: string;
+  status?: string;
+  title?: string;
+  task?: string;
+  created_at?: string;
+  startedAt?: string;
+  repo_url?: string;
+  repoUrl?: string;
+  namespace?: string;
+  depends_on?: string;
+  dependsOn?: string[];
+  resumedFrom?: string;
   x: number;
   y: number;
+  vx?: number;
+  vy?: number;
+  fx?: number | null;
+  fy?: number | null;
+  index?: number;
 }
+
+export type CanvasNode = HubNode | JobNode;
+
+// Legacy alias kept for DetailPanel
+export type OrbNode = JobNode;

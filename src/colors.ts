@@ -1,13 +1,13 @@
-// Warm hue families for repos — soft, desaturated
-const REPO_PALETTE = [
-  '#8BA888', // soft sage green
-  '#A88B8B', // dusty rose
-  '#8B9BA8', // slate blue
-  '#A8A08B', // warm tan
-  '#9B8BA8', // muted lavender
-  '#A89B8B', // warm brown
-  '#8BA8A0', // seafoam
-  '#A8908B', // terracotta
+// Hub orb fill colors — warm, distinct, desaturated
+export const HUB_PALETTE = [
+  '#C4A882',  // warm sand
+  '#82B4C4',  // soft blue
+  '#A8C482',  // soft green
+  '#C482A8',  // muted rose
+  '#C4C482',  // warm yellow
+  '#A882C4',  // soft purple
+  '#82C4A8',  // teal
+  '#C49882',  // terracotta
 ];
 
 const repoColorMap = new Map<string, string>();
@@ -15,10 +15,14 @@ let colorIndex = 0;
 
 export function getRepoColor(repo: string): string {
   if (!repoColorMap.has(repo)) {
-    repoColorMap.set(repo, REPO_PALETTE[colorIndex % REPO_PALETTE.length]);
+    repoColorMap.set(repo, HUB_PALETTE[colorIndex % HUB_PALETTE.length]);
     colorIndex++;
   }
   return repoColorMap.get(repo)!;
+}
+
+export function getRepoColorByIdx(idx: number): string {
+  return HUB_PALETTE[idx % HUB_PALETTE.length];
 }
 
 export const STATUS_GLOW: Record<string, { fill: string; glow: string; opacity: number }> = {

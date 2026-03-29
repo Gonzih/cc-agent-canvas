@@ -4,7 +4,6 @@ import type { Job } from './types';
 
 interface SidebarProps {
   jobs: Job[];
-  displayCount: number;
   selectedRepo: string | null;
   onSelectRepo: (repo: string | null) => void;
   connected: boolean;
@@ -38,7 +37,7 @@ function buildRepoStats(jobs: Job[]): RepoStats[] {
   return [...map.values()].sort((a, b) => b.running - a.running || b.total - a.total);
 }
 
-export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connected }: SidebarProps) {
+export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: SidebarProps) {
   const repos = buildRepoStats(jobs);
 
   return (
@@ -75,10 +74,7 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
       {/* Total count */}
       <div style={{ padding: '0 18px 16px', borderBottom: '1px solid rgba(180,160,130,0.15)' }}>
         <div style={{ fontSize: 11, color: '#8B7355' }}>
-          {jobs.length} job{jobs.length !== 1 ? 's' : ''} total
-          {displayCount < jobs.length && (
-            <span style={{ color: '#B0998A' }}> · showing {displayCount} most recent</span>
-          )}
+          {jobs.length} job{jobs.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           {(['running', 'done', 'failed'] as const).map(st => {
@@ -137,10 +133,11 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                {/* Colored pill matching hub color */}
                 <div style={{
-                  width: 8, height: 8, borderRadius: '50%',
+                  width: 10, height: 10, borderRadius: '50%',
                   background: color, flexShrink: 0,
-                  boxShadow: isSelected ? `0 0 6px ${color}` : 'none',
+                  boxShadow: isSelected ? `0 0 8px ${color}` : 'none',
                 }} />
                 <span style={{
                   fontSize: 12, color: '#3D2E1E', fontWeight: isSelected ? 600 : 400,
