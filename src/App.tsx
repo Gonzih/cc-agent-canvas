@@ -7,7 +7,7 @@ import { Canvas } from './Canvas';
 import { DetailPanel } from './DetailPanel';
 import type { Job } from './types';
 
-const ALL_STATUSES = ['running', 'done', 'failed', 'cancelled', 'pending'];
+const CANONICAL_STATUSES = ['running', 'pending', 'pending_approval', 'done', 'failed', 'cancelled', 'interrupted'];
 
 export default function App() {
   const { jobs, connected } = useWebSocket();
@@ -21,23 +21,15 @@ export default function App() {
   // Filter state: null means all active; Set means specific statuses are active
   const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null);
 
-  // Derive available statuses with counts from current jobs
+  // Build status counts — always include all canonical statuses (count 0 if none present)
   const availableStatuses = useMemo<Map<string, number>>(() => {
     const counts = new Map<string, number>();
+    for (const s of CANONICAL_STATUSES) counts.set(s, 0);
     for (const j of jobs) {
       const s = j.status?.toLowerCase() ?? 'pending';
       counts.set(s, (counts.get(s) ?? 0) + 1);
     }
-    // Sort in preferred order
-    const ordered = new Map<string, number>();
-    for (const s of ALL_STATUSES) {
-      if (counts.has(s)) ordered.set(s, counts.get(s)!);
-    }
-    // Any unknown statuses appended
-    for (const [s, c] of counts) {
-      if (!ordered.has(s)) ordered.set(s, c);
-    }
-    return ordered;
+    return counts;
   }, [jobs]);
 
   // Effective filters passed to useCanvas: empty array = all; specific array = filtered

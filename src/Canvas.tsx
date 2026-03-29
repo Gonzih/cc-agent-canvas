@@ -24,19 +24,23 @@ interface Transform {
 }
 
 const STATUS_FILL: Record<string, string> = {
-  running:   '#7BB3D4',
-  done:      '#7DC4A0',
-  failed:    '#D47B7B',
-  cancelled: '#B8A898',
-  pending:   '#C4B8A8',
+  running:          '#7BB3D4',
+  done:             '#7DC4A0',
+  failed:           '#D47B7B',
+  cancelled:        '#B8A898',
+  pending:          '#C4B8A8',
+  pending_approval: '#D4B87B',
+  interrupted:      '#C4A0B8',
 };
 
 const STATUS_GLOW: Record<string, string> = {
-  running:   'rgba(123,179,212,0.35)',
-  done:      'rgba(125,196,160,0.25)',
-  failed:    'rgba(212,123,123,0.25)',
-  cancelled: 'rgba(184,168,152,0.12)',
-  pending:   'rgba(196,184,168,0.15)',
+  running:          'rgba(123,179,212,0.35)',
+  done:             'rgba(125,196,160,0.25)',
+  failed:           'rgba(212,123,123,0.25)',
+  cancelled:        'rgba(184,168,152,0.12)',
+  pending:          'rgba(196,184,168,0.15)',
+  pending_approval: 'rgba(212,184,123,0.20)',
+  interrupted:      'rgba(196,160,184,0.18)',
 };
 
 function statusFill(s?: string): string {
@@ -715,61 +719,60 @@ export function Canvas({
         onTouchEnd={onTouchEnd}
       />
 
-      {/* Status filter pills — top-left overlay */}
-      {availableStatuses.size > 0 && (
-        <div style={{
-          position: 'absolute', left: 16, top: 16,
-          display: 'flex', flexWrap: 'wrap', gap: 6,
-          pointerEvents: 'auto',
-          zIndex: 10,
-        }}>
-          {[...availableStatuses.entries()].map(([status, count]) => {
-            const isActive = effectiveActiveSet.has(status);
-            const color = STATUS_FILL[status] ?? STATUS_FILL.pending;
-            return (
-              <button
-                key={status}
-                onClick={() => handlePillClick(status)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  border: isActive ? `1.5px solid ${color}` : '1.5px solid transparent',
-                  background: '#EDE8DF',
-                  cursor: 'pointer',
-                  fontFamily: 'DM Sans, system-ui, sans-serif',
-                  fontSize: 12,
-                  color: isActive ? '#3D2E1E' : 'rgba(100,80,50,0.35)',
-                  opacity: isActive ? 1 : 0.55,
-                  transition: 'opacity 0.15s, border-color 0.15s, color 0.15s',
-                  outline: 'none',
-                  boxShadow: isActive ? `0 0 0 2px ${color}22` : 'none',
-                  userSelect: 'none',
-                }}
-              >
-                <span style={{
-                  width: 7, height: 7, borderRadius: '50%',
-                  background: color,
-                  display: 'inline-block',
-                  flexShrink: 0,
-                  opacity: isActive ? 1 : 0.4,
-                }} />
-                <span>{status}</span>
-                <span style={{
-                  marginLeft: 2,
-                  fontSize: 10,
-                  color: isActive ? 'rgba(80,60,40,0.5)' : 'rgba(100,80,50,0.25)',
-                }}>{count}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* Status filter pills — top-left overlay (always shown) */}
+      <div style={{
+        position: 'absolute', left: 16, top: 16,
+        display: 'flex', flexWrap: 'wrap', gap: 6,
+        pointerEvents: 'auto',
+        zIndex: 10,
+      }}>
+        {[...availableStatuses.entries()].map(([status, count]) => {
+          const isActive = effectiveActiveSet.has(status);
+          const isEmpty = count === 0;
+          const color = STATUS_FILL[status] ?? STATUS_FILL.pending;
+          return (
+            <button
+              key={status}
+              onClick={() => handlePillClick(status)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: isActive && !isEmpty ? `1.5px solid ${color}` : '1.5px solid transparent',
+                background: '#EDE8DF',
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, system-ui, sans-serif',
+                fontSize: 12,
+                color: isActive && !isEmpty ? '#3D2E1E' : 'rgba(100,80,50,0.35)',
+                opacity: isEmpty ? 0.35 : isActive ? 1 : 0.55,
+                transition: 'opacity 0.15s, border-color 0.15s, color 0.15s',
+                outline: 'none',
+                boxShadow: isActive && !isEmpty ? `0 0 0 2px ${color}22` : 'none',
+                userSelect: 'none',
+              }}
+            >
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%',
+                background: color,
+                display: 'inline-block',
+                flexShrink: 0,
+                opacity: isEmpty ? 0.25 : isActive ? 1 : 0.4,
+              }} />
+              <span>{status}</span>
+              <span style={{
+                marginLeft: 2,
+                fontSize: 10,
+                color: isEmpty ? 'rgba(100,80,50,0.2)' : isActive ? 'rgba(80,60,40,0.5)' : 'rgba(100,80,50,0.25)',
+              }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Zoom hint — below filter pills */}
       <div style={{
         position: 'absolute', left: 20,
-        top: availableStatuses.size > 0 ? 52 : 16,
+        top: 52,
         fontSize: 11, color: 'rgba(100,80,50,0.35)',
         fontFamily: 'DM Sans, system-ui, sans-serif',
         pointerEvents: 'none', userSelect: 'none',
