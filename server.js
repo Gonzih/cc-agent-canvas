@@ -117,17 +117,17 @@ async function buildSnapshot() {
     }
   }
 
-  // Mark top 60 jobs per repo as visible (newest first); rest visible: false
+  // Mark top 60 per repo as visible (sorted newest first)
   const byRepo = {};
-  for (const j of allJobs) {
+  allJobs.forEach(j => {
     const repo = j.repo_url || j.repoUrl || 'unknown';
     if (!byRepo[repo]) byRepo[repo] = [];
     byRepo[repo].push(j);
-  }
-  for (const group of Object.values(byRepo)) {
-    group.sort((a, b) => (b.startedAt || b.created_at || '').localeCompare(a.startedAt || a.created_at || ''));
+  });
+  Object.values(byRepo).forEach(group => {
+    group.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
     group.forEach((j, i) => { j.visible = i < 60; });
-  }
+  });
 
   return allJobs;
 }
