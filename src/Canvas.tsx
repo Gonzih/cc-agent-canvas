@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import * as d3 from 'd3';
 import type { CanvasNode, HubNode, JobNode, SimLink } from './useCanvas';
 import { HUB_COLORS, getRepoColorIndex } from './colors';
@@ -15,6 +15,7 @@ interface CanvasProps {
   onFiltersChange: (filters: Set<string>) => void;
   availableStatuses: Map<string, number>;
   simRef: React.MutableRefObject<d3.Simulation<CanvasNode, SimLink> | null>;
+  forceMultiplierRef: React.MutableRefObject<number>;
   hoveredRepo: string | null;
 }
 
@@ -92,8 +93,9 @@ export function Canvas({
   nodes, links, selectedId, onSelect,
   panToRepo, onPanComplete, newIds,
   activeFilters, onFiltersChange, availableStatuses, simRef,
-  hoveredRepo,
+  forceMultiplierRef, hoveredRepo,
 }: CanvasProps) {
+  const [displayMultiplier, setDisplayMultiplier] = useState(2.0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -854,6 +856,40 @@ export function Canvas({
         pointerEvents: 'none', userSelect: 'none',
       }}>
         scroll to zoom · drag to pan · click hub to focus
+      </div>
+
+      {/* Gravity slider — bottom right */}
+      <div style={{
+        position: 'absolute', bottom: 24, right: 24,
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontSize: 11, color: 'rgba(80,60,40,0.5)',
+        fontFamily: 'DM Sans, system-ui, sans-serif',
+        pointerEvents: 'auto',
+        zIndex: 10,
+        userSelect: 'none',
+      }}>
+        <span>gravity</span>
+        <input
+          type="range"
+          min={0.5}
+          max={8}
+          step={0.1}
+          value={displayMultiplier}
+          onChange={e => {
+            const val = parseFloat(e.target.value);
+            forceMultiplierRef.current = val;
+            setDisplayMultiplier(val);
+            if (simRef.current) {
+              simRef.current.alpha(0.3).restart();
+            }
+          }}
+          style={{
+            width: 100,
+            accentColor: 'rgba(80,60,40,0.4)',
+            cursor: 'pointer',
+          }}
+        />
+        <span>{displayMultiplier.toFixed(1)}x</span>
       </div>
     </div>
   );

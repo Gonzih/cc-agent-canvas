@@ -80,13 +80,14 @@ function makePlanetTrailForce(): d3.Force<CanvasNode, SimLink> {
 
 function buildSimForces(
   sim: d3.Simulation<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>,
+  multiplierRef: { current: number },
 ) {
   // Charge: hub repulsion is filter-reactive (reads visibleJobCount), jobs get fixed charge
   sim.force('charge', d3.forceManyBody<CanvasNode>()
     .strength(n => {
       if (n.type === 'hub') {
         const jobs = (n as HubNode).visibleJobCount ?? 0;
-        return Math.max(-60, -(160 + jobs * 24));
+        return Math.max(-60, -(160 + jobs * multiplierRef.current * 12));
       }
       return -150;
     })
@@ -113,6 +114,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
   const nodesRef = useRef<CanvasNode[]>([]);
   // Full unfiltered pool: all hubs + all LOD-visible jobs
   const allNodesRef = useRef<CanvasNode[]>([]);
+  const forceMultiplierRef = useRef(2.0);
   nodesRef.current = nodes;
 
   useEffect(() => {
@@ -153,8 +155,8 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
       };
     });
 
-    // Build job nodes — only LOD-visible jobs (visible !== false)
-    const lodVisibleJobs = jobs.filter(j => j.visible !== false);
+    // Build job nodes — all jobs (no per-cluster visibility cap)
+    const lodVisibleJobs = jobs;
     const allJobNodes: JobNode[] = lodVisibleJobs.map(j => {
       const pos = existingPositions.get(j.id);
       const hub = hubNodes.find(h => h.repo === getRepo(j));
@@ -237,7 +239,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
         if (lf) setLinks([...(lf.links() as SimLink[])]);
       });
 
-    buildSimForces(sim);
+    buildSimForces(sim, forceMultiplierRef);
     simRef.current = sim;
 
     return () => { sim.stop(); };
@@ -297,12 +299,12 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
     if (lf) lf.links(rawLinks);
 
     // Rebuild forces — hubRepulsion will reinitialize with updated node properties
-    buildSimForces(sim);
+    buildSimForces(sim, forceMultiplierRef);
 
     // Heat up simulation so nodes find new equilibrium
     sim.alpha(0.5).restart();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilters.join(',')]);
 
-  return { nodes, links, simRef };
+  return { nodes, links, simRef, forceMultiplierRef };
 }

@@ -39,7 +39,7 @@ export default function App() {
     return [...activeFilters];
   }, [activeFilters]);
 
-  const { nodes, links, simRef } = useCanvas(jobs, effectiveFilters);
+  const { nodes, links, simRef, forceMultiplierRef } = useCanvas(jobs, effectiveFilters);
 
   // Dismiss loading overlay on first data
   useEffect(() => {
@@ -117,6 +117,7 @@ export default function App() {
         onFiltersChange={handleFiltersChange}
         availableStatuses={availableStatuses}
         simRef={simRef}
+        forceMultiplierRef={forceMultiplierRef}
         hoveredRepo={hoveredRepo}
       />
       <DetailPanel

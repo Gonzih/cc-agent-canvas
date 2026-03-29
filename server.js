@@ -117,18 +117,6 @@ async function buildSnapshot() {
     }
   }
 
-  // Mark top 60 per repo as visible (sorted newest first)
-  const byRepo = {};
-  allJobs.forEach(j => {
-    const repo = j.repo_url || j.repoUrl || 'unknown';
-    if (!byRepo[repo]) byRepo[repo] = [];
-    byRepo[repo].push(j);
-  });
-  Object.values(byRepo).forEach(group => {
-    group.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
-    group.forEach((j, i) => { j.visible = i < 60; });
-  });
-
   return allJobs;
 }
 
