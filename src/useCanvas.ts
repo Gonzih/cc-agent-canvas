@@ -9,6 +9,7 @@ export interface HubNode extends d3.SimulationNodeDatum {
   repo: string;
   label: string;
   colorIndex: number;
+  totalCount: number;
 }
 
 export interface JobNode extends d3.SimulationNodeDatum {
@@ -53,6 +54,16 @@ export function useCanvas(jobs: Job[]) {
       }
     }
 
+    // Count total jobs per repo (before visibility filter)
+    const totalByRepo = new Map<string, number>();
+    for (const j of jobs) {
+      const repo = getRepo(j);
+      totalByRepo.set(repo, (totalByRepo.get(repo) ?? 0) + 1);
+    }
+
+    // Only simulate visible jobs (top 60 per repo), hub nodes always included
+    const visibleJobs = jobs.filter(j => j.visible !== false);
+
     // Build hub nodes — one per repo, arranged on a circle
     const hubNodes: HubNode[] = repos.map((repo, i) => {
       const angle = (i / repos.length) * Math.PI * 2 - Math.PI / 2;
@@ -65,13 +76,14 @@ export function useCanvas(jobs: Job[]) {
         repo,
         label: repo,
         colorIndex: getRepoColorIndex(repo),
+        totalCount: totalByRepo.get(repo) ?? 0,
         x: pos?.x ?? WIDTH / 2 + Math.cos(angle) * radius,
         y: pos?.y ?? HEIGHT / 2 + Math.sin(angle) * radius,
       };
     });
 
-    // Build job nodes
-    const jobNodes: JobNode[] = jobs.map(j => {
+    // Build job nodes (visible only)
+    const jobNodes: JobNode[] = visibleJobs.map(j => {
       const pos = existingPositions.get(j.id);
       const hub = hubNodes.find(h => h.repo === getRepo(j));
       return {
@@ -99,7 +111,7 @@ export function useCanvas(jobs: Job[]) {
     }
 
     // Dependency links between jobs
-    for (const j of jobs) {
+    for (const j of visibleJobs) {
       const parents = j.dependsOn?.length ? j.dependsOn : j.depends_on ? [j.depends_on] : [];
       for (const parentId of parents) {
         if (nodeIdSet.has(parentId) && nodeIdSet.has(j.id)) {

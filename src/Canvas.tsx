@@ -56,8 +56,8 @@ function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w:
   ctx.closePath();
 }
 
-const HUB_R = 40;
-const JOB_R = 16;
+const HUB_R_BASE = 40;
+const JOB_R_BASE = 16;
 
 export function Canvas({
   nodes, links, selectedId, onSelect,
@@ -77,6 +77,7 @@ export function Canvas({
   const linksRef = useRef<SimLink[]>(links);
   const centeredRef = useRef(false);
   const transformRef = useRef(transform);
+  const orbSizesRef = useRef({ hubR: HUB_R_BASE, jobR: JOB_R_BASE });
   const selectedIdRef = useRef(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
   const bloomRef = useRef<Map<string, number>>(new Map());
@@ -163,8 +164,19 @@ export function Canvas({
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
 
+      // Zoom-aware orb sizes
+      const HUB_R = t.k < 0.3 ? 20 : HUB_R_BASE;
+      const JOB_R = t.k < 0.3 ? 6 : t.k < 0.6 ? 12 : JOB_R_BASE;
+      orbSizesRef.current = { hubR: HUB_R, jobR: JOB_R };
+
       const hubs = ns.filter((n): n is HubNode => n.type === 'hub');
       const jobs = ns.filter((n): n is JobNode => n.type === 'job');
+
+      // Count visible job nodes per repo (for spoke threshold)
+      const visibleCountByRepo = new Map<string, number>();
+      for (const jn of jobs) {
+        visibleCountByRepo.set(jn.repo, (visibleCountByRepo.get(jn.repo) ?? 0) + 1);
+      }
 
       // 1. Hub glow blobs (large radial gradient, very low opacity)
       for (const hub of hubs) {
@@ -181,17 +193,19 @@ export function Canvas({
       }
 
       // 2. Spoke lines (hub → job) with gentle sinusoidal wobble
+      // Skip spokes for repos with >30 visible nodes — force clustering is visually obvious
       for (const link of ls) {
         if (link.linkType !== 'hub-spoke') continue;
         const src = link.source as CanvasNode;
         const tgt = link.target as CanvasNode;
+        const hub = (tgt.type === 'hub' ? tgt : src) as HubNode;
+        if ((visibleCountByRepo.get(hub.repo) ?? 0) > 30) continue;
         const sx = src.x ?? 0;
         const sy = src.y ?? 0;
         const tx = tgt.x ?? 0;
         const ty = tgt.y ?? 0;
 
         // Hub is target, job is source — get the hub's color
-        const hub = (tgt.type === 'hub' ? tgt : src) as HubNode;
         const hubColor = HUB_COLORS[hub.colorIndex];
 
         // Perpendicular wobble
@@ -279,6 +293,11 @@ export function Canvas({
         ctx.fillStyle = 'rgba(80,60,40,0.65)';
         ctx.textAlign = 'center';
         ctx.fillText(hub.label.slice(0, 22), hx, hy + HUB_R + 16);
+
+        // Total job count below repo name
+        ctx.font = '9px system-ui';
+        ctx.fillStyle = 'rgba(80,60,40,0.5)';
+        ctx.fillText(`${hub.totalCount} jobs`, hx, hy + HUB_R + 29);
 
         // Hover/selection ring
         if (isHovered || isSelected) {
@@ -404,7 +423,7 @@ export function Canvas({
           }
           const hx = hn.x ?? 0;
           const hy = hn.y ?? 0;
-          const orbR = hn.type === 'hub' ? HUB_R : JOB_R;
+          const orbR = hn.type === 'hub' ? HUB_R : JOB_R; // HUB_R/JOB_R are in scope here
 
           ctx.font = 'bold 11px DM Sans, system-ui';
           const tw = ctx.measureText(label).width;
@@ -495,15 +514,16 @@ export function Canvas({
   };
 
   const findNode = (wx: number, wy: number): CanvasNode | null => {
+    const { hubR, jobR } = orbSizesRef.current;
     // Check hubs first (larger hit area)
     for (const n of nodesRef.current) {
       if (n.type !== 'hub') continue;
-      const r = HUB_R + 8;
+      const r = hubR + 8;
       if (Math.sqrt(((n.x ?? 0) - wx) ** 2 + ((n.y ?? 0) - wy) ** 2) < r) return n;
     }
     // Then jobs
     let closest: CanvasNode | null = null;
-    let minDist = JOB_R + 10;
+    let minDist = jobR + 10;
     for (const n of nodesRef.current) {
       if (n.type !== 'job') continue;
       const d = Math.sqrt(((n.x ?? 0) - wx) ** 2 + ((n.y ?? 0) - wy) ** 2);
