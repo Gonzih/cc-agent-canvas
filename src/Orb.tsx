@@ -21,13 +21,86 @@ function getRepoName(repoUrl?: string): string {
 
 export function Orb({ node, zoom, selected, onClick, onHover, hovered, isNew }: OrbProps) {
   const style = getStatusStyle(node.status);
-  const repoName = getRepoName(node.repo_url);
+  const repoName = getRepoName(node.repo_url || node.repoUrl);
   const repoColor = getRepoColor(repoName);
   const label = (node.title || node.task || node.id).slice(0, 32);
   const showLabel = zoom > 0.45;
 
   const isRunning = node.status?.toLowerCase() === 'running';
+  const useMotion = isRunning || isNew;
 
+  const gradId = `grad-${node.id}`;
+
+  const gradDef = (
+    <defs>
+      <radialGradient id={gradId} cx="35%" cy="30%" r="65%">
+        <stop offset="0%" stopColor="rgba(255,255,255,0.55)" />
+        <stop offset="60%" stopColor={style.fill} stopOpacity="0.8" />
+        <stop offset="100%" stopColor={style.fill} stopOpacity="0.4" />
+      </radialGradient>
+    </defs>
+  );
+
+  const hoverRing = (hovered || selected) && (
+    <circle
+      r={ORB_RADIUS + 5}
+      fill="none"
+      stroke={repoColor}
+      strokeWidth={1.5}
+      opacity={0.5}
+    />
+  );
+
+  const statusDot = (
+    <circle
+      cx={ORB_RADIUS - 8}
+      cy={-(ORB_RADIUS - 8)}
+      r={5}
+      fill={style.fill}
+      stroke="rgba(255,255,255,0.7)"
+      strokeWidth={1}
+    />
+  );
+
+  const labelEl = showLabel && (
+    <text
+      y={ORB_RADIUS + 16}
+      textAnchor="middle"
+      fontSize={11}
+      fill="#6B5E4E"
+      fontFamily="DM Sans, system-ui, sans-serif"
+      style={{ pointerEvents: 'none', userSelect: 'none' }}
+    >
+      {label}
+    </text>
+  );
+
+  if (!useMotion) {
+    // Static SVG for done/failed/queued orbs — no framer-motion overhead
+    return (
+      <g
+        style={{ cursor: 'pointer' }}
+        transform={`translate(${node.x}, ${node.y})`}
+        onClick={onClick}
+        onMouseEnter={() => onHover(node.id)}
+        onMouseLeave={() => onHover(null)}
+      >
+        {gradDef}
+        <circle r={ORB_RADIUS + 14} fill={style.glow} style={{ filter: 'blur(12px)' }} opacity={0.6} />
+        <circle
+          r={ORB_RADIUS}
+          fill={`url(#${gradId})`}
+          stroke={selected ? repoColor : 'rgba(255,255,255,0.4)'}
+          strokeWidth={selected ? 2.5 : 1}
+        />
+        {hoverRing}
+        {labelEl}
+        {statusDot}
+      </g>
+    );
+  }
+
+  // framer-motion only for running orbs and new-orb bloom
   return (
     <motion.g
       style={{ cursor: 'pointer' }}
@@ -39,6 +112,7 @@ export function Orb({ node, zoom, selected, onClick, onHover, hovered, isNew }: 
       onHoverEnd={() => onHover(null)}
       transform={`translate(${node.x}, ${node.y})`}
     >
+      {gradDef}
       {/* Glow filter backdrop */}
       <motion.circle
         r={ORB_RADIUS + 14}
@@ -54,7 +128,7 @@ export function Orb({ node, zoom, selected, onClick, onHover, hovered, isNew }: 
       {/* Main orb */}
       <motion.circle
         r={ORB_RADIUS}
-        fill={`url(#grad-${node.id})`}
+        fill={`url(#${gradId})`}
         stroke={selected ? repoColor : 'rgba(255,255,255,0.4)'}
         strokeWidth={selected ? 2.5 : 1}
         animate={isRunning ? {
@@ -63,49 +137,9 @@ export function Orb({ node, zoom, selected, onClick, onHover, hovered, isNew }: 
         transition={isRunning ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : {}}
       />
 
-      {/* Hover ring */}
-      {(hovered || selected) && (
-        <circle
-          r={ORB_RADIUS + 5}
-          fill="none"
-          stroke={repoColor}
-          strokeWidth={1.5}
-          opacity={0.5}
-        />
-      )}
-
-      {/* Label */}
-      {showLabel && (
-        <text
-          y={ORB_RADIUS + 16}
-          textAnchor="middle"
-          fontSize={11}
-          fill="#6B5E4E"
-          fontFamily="DM Sans, system-ui, sans-serif"
-          style={{ pointerEvents: 'none', userSelect: 'none' }}
-        >
-          {label}
-        </text>
-      )}
-
-      {/* Status dot */}
-      <circle
-        cx={ORB_RADIUS - 8}
-        cy={-(ORB_RADIUS - 8)}
-        r={5}
-        fill={style.fill}
-        stroke="rgba(255,255,255,0.7)"
-        strokeWidth={1}
-      />
-
-      {/* Gradient def */}
-      <defs>
-        <radialGradient id={`grad-${node.id}`} cx="35%" cy="30%" r="65%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.55)" />
-          <stop offset="60%" stopColor={style.fill} stopOpacity="0.8" />
-          <stop offset="100%" stopColor={style.fill} stopOpacity="0.4" />
-        </radialGradient>
-      </defs>
+      {hoverRing}
+      {labelEl}
+      {statusDot}
     </motion.g>
   );
 }

@@ -62,7 +62,10 @@ async function getJobIds(namespace) {
 async function fetchJob(id) {
   const raw = await redis.get(`cca:job:${id}`);
   const job = parseJob(raw);
-  if (job) job.id = job.id || id;
+  if (job) {
+    job.id = job.id || id;
+    job.repo_url = job.repo_url || job.repoUrl || '';
+  }
   return job;
 }
 
@@ -74,7 +77,10 @@ async function fetchJobs(ids) {
   return results
     .map((raw, i) => {
       const j = parseJob(raw);
-      if (j) j.id = j.id || ids[i];
+      if (j) {
+        j.id = j.id || ids[i];
+        j.repo_url = j.repo_url || j.repoUrl || '';
+      }
       return j;
     })
     .filter(Boolean);
@@ -137,6 +143,7 @@ const MIME = {
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
   // API: job output
   const outputMatch = req.url?.match(/^\/api\/job\/([^/]+)\/output$/);
