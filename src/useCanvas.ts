@@ -39,6 +39,7 @@ export function useCanvas(jobs: Job[]) {
 
     if (simRef.current) simRef.current.stop();
 
+    let ticks = 0;
     const sim = d3.forceSimulation<OrbNode, SimLink>(newNodes)
       .force('link', d3.forceLink<OrbNode, SimLink>(links)
         .id(d => d.id)
@@ -49,7 +50,13 @@ export function useCanvas(jobs: Job[]) {
       .force('center', d3.forceCenter(WIDTH / 2, HEIGHT / 2))
       .alphaDecay(0.02)
       .on('tick', () => {
-        setNodes([...sim.nodes()]);
+        ticks++;
+        if (ticks >= 200) {
+          sim.stop();
+          setNodes([...sim.nodes()]);
+        } else {
+          setNodes([...sim.nodes()]);
+        }
       })
       .on('end', () => {
         setNodes([...sim.nodes()]);

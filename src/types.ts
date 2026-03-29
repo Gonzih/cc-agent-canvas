@@ -4,8 +4,10 @@ export interface Job {
   task?: string;
   status?: string;
   repo_url?: string;
+  repoUrl?: string;
   namespace?: string;
   created_at?: string;
+  startedAt?: string;
   updated_at?: string;
   depends_on?: string;
   // d3 simulation fields

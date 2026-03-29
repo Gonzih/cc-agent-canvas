@@ -32,7 +32,12 @@ function getLinkPath(sx: number, sy: number, tx: number, ty: number): string {
 
 export function Canvas({ nodes, jobs, selectedId, onSelect, panToRepo, onPanComplete, newIds }: CanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 0.7 });
+  const [transform, setTransform] = useState<Transform>(() => {
+    const vw = window.innerWidth - 220;
+    const vh = window.innerHeight;
+    const k = 0.7;
+    return { x: vw / 2 - 1500 * k, y: vh / 2 - 1500 * k, k };
+  });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; label: string } | null>(null);
   const dragging = useRef(false);
@@ -48,7 +53,8 @@ export function Canvas({ nodes, jobs, selectedId, onSelect, panToRepo, onPanComp
   useEffect(() => {
     if (!panToRepo || !nodes.length) return;
     const repoNodes = nodes.filter(n => {
-      const name = n.repo_url?.split('/').pop() ?? 'unknown';
+      const url = n.repo_url || n.repoUrl;
+      const name = url?.split('/').pop() ?? 'unknown';
       return name === panToRepo;
     });
     if (!repoNodes.length) { onPanComplete(); return; }
