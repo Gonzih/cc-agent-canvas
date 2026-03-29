@@ -14,6 +14,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
+  const [hoveredRepo, setHoveredRepo] = useState<string | null>(null);
   const prevJobIds = useRef<Set<string>>(new Set());
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -101,6 +102,8 @@ export default function App() {
         selectedRepo={selectedRepo}
         onSelectRepo={handleSelectRepo}
         connected={connected}
+        hoveredRepo={hoveredRepo}
+        onHoverRepo={setHoveredRepo}
       />
       <Canvas
         nodes={nodes}
@@ -114,6 +117,7 @@ export default function App() {
         onFiltersChange={handleFiltersChange}
         availableStatuses={availableStatuses}
         simRef={simRef}
+        hoveredRepo={hoveredRepo}
       />
       <DetailPanel
         job={selectedJob}
