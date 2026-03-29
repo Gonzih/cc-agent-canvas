@@ -12,6 +12,7 @@ export interface Job {
   depends_on?: string;
   dependsOn?: string[];
   resumedFrom?: string;
+  visible?: boolean;
   // d3 simulation fields
   x?: number;
   y?: number;
