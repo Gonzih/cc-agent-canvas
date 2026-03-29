@@ -872,8 +872,8 @@ export function Canvas({
         <input
           type="range"
           min={0.5}
-          max={8}
-          step={0.1}
+          max={100}
+          step={0.5}
           value={displayMultiplier}
           onChange={e => {
             const val = parseFloat(e.target.value);
