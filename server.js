@@ -17,7 +17,7 @@ import { WebSocketServer } from 'ws';
 import { createClient } from 'redis';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.CC_AGENT_CANVAS_PORT || process.env.PORT || '3131', 10);
+const PORT = parseInt(process.env.CC_AGENT_CANVAS_PORT || process.env.PORT || '7702', 10);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const JOBS_DIR = path.join(os.homedir(), '.cc-agent', 'jobs');
 const DIST_DIR = path.join(__dirname, 'dist');

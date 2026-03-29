@@ -4,5 +4,6 @@ COPY package*.json ./
 RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build
-EXPOSE 3131
+EXPOSE 7702
+ENV PORT=7702
 CMD ["node", "server.js"]
