@@ -1,4 +1,5 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
+import * as d3 from 'd3';
 import type { CanvasNode, HubNode, JobNode, SimLink } from './useCanvas';
 import { HUB_COLORS } from './colors';
 
@@ -10,6 +11,10 @@ interface CanvasProps {
   panToRepo: string | null;
   onPanComplete: () => void;
   newIds: Set<string>;
+  activeFilters: Set<string> | null;
+  onFiltersChange: (filters: Set<string>) => void;
+  availableStatuses: Map<string, number>;
+  simRef: React.MutableRefObject<d3.Simulation<CanvasNode, SimLink> | null>;
 }
 
 interface Transform {
@@ -60,32 +65,70 @@ function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 const HUB_R = 40;
 const JOB_R = 16;
 
+function computeFitTransform(ns: CanvasNode[], padding = 80): Transform | null {
+  if (!ns.length) return null;
+  const xs = ns.map(n => n.x ?? 0);
+  const ys = ns.map(n => n.y ?? 0);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const cw = window.innerWidth - 220;
+  const ch = window.innerHeight;
+  const scaleX = cw / (maxX - minX + padding * 2);
+  const scaleY = ch / (maxY - minY + padding * 2);
+  const scale = Math.min(scaleX, scaleY, 1.2);
+  const tx = (cw - (maxX + minX) * scale) / 2;
+  const ty = (ch - (maxY + minY) * scale) / 2;
+  return { x: tx, y: ty, k: scale };
+}
+
 export function Canvas({
   nodes, links, selectedId, onSelect,
   panToRepo, onPanComplete, newIds,
+  activeFilters, onFiltersChange, availableStatuses, simRef,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
-  const [transform, setTransform] = useState<Transform>(() => {
-    const vw = window.innerWidth - 220;
-    const vh = window.innerHeight;
-    const k = 0.55;
-    return { x: vw / 2 - 1500 * k, y: vh / 2 - 1500 * k, k };
-  });
+  // Transform stored purely in a ref — no React state needed since canvas draws via RAF
+  const vw0 = window.innerWidth - 220;
+  const vh0 = window.innerHeight;
+  const k0 = 0.55;
+  const transformRef = useRef<Transform>({ x: vw0 / 2 - 1500 * k0, y: vh0 / 2 - 1500 * k0, k: k0 });
 
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const linksRef = useRef<SimLink[]>(links);
   const centeredRef = useRef(false);
-  const transformRef = useRef(transform);
   const selectedIdRef = useRef(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
   const bloomRef = useRef<Map<string, number>>(new Map());
 
+  // Dynamic zoom tracking
+  const userInteractedRef = useRef(false);
+  const lastBBoxUpdateRef = useRef(0);
+  const dynTargetRef = useRef<Transform | null>(null);
+
+  // Filter version counter: increments on filter change to reset userInteracted
+  const filterVersionRef = useRef(0);
+  const prevFilterKeyRef = useRef('');
+
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { linksRef.current = links; }, [links]);
-  useEffect(() => { transformRef.current = transform; }, [transform]);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+
+  // Detect filter changes and reset userInteracted so dynamic zoom resumes
+  const filterKey = activeFilters ? [...activeFilters].sort().join(',') : '__all__';
+  useEffect(() => {
+    if (filterKey !== prevFilterKeyRef.current) {
+      prevFilterKeyRef.current = filterKey;
+      filterVersionRef.current++;
+      userInteractedRef.current = false;
+      lastBBoxUpdateRef.current = 0; // force immediate bbox update
+      dynTargetRef.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   // Track bloom start times for new job orbs
   useEffect(() => {
@@ -105,23 +148,8 @@ export function Canvas({
     const timer = setTimeout(() => {
       if (centeredRef.current) return;
       centeredRef.current = true;
-      const ns = nodesRef.current;
-      if (!ns.length) return;
-      const xs = ns.map(n => n.x ?? 0);
-      const ys = ns.map(n => n.y ?? 0);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-      const padding = 80;
-      const cw = window.innerWidth - 220;
-      const ch = window.innerHeight;
-      const scaleX = cw / (maxX - minX + padding * 2);
-      const scaleY = ch / (maxY - minY + padding * 2);
-      const scale = Math.min(scaleX, scaleY, 1.2);
-      const tx = (cw - (maxX + minX) * scale) / 2;
-      const ty = (ch - (maxY + minY) * scale) / 2;
-      setTransform({ x: tx, y: ty, k: scale });
+      const fit = computeFitTransform(nodesRef.current);
+      if (fit) transformRef.current = fit;
     }, 2000);
 
     return () => clearTimeout(timer);
@@ -150,6 +178,29 @@ export function Canvas({
       const ctx = canvas.getContext('2d');
       if (!ctx) { rafRef.current = requestAnimationFrame(draw); return; }
 
+      // --- Dynamic zoom tracking ---
+      const simAlpha = simRef.current?.alpha() ?? 0;
+      if (simAlpha > 0.01 && !userInteractedRef.current) {
+        const now2 = Date.now();
+        if (now2 - lastBBoxUpdateRef.current > 2000) {
+          lastBBoxUpdateRef.current = now2;
+          const fit = computeFitTransform(nodesRef.current);
+          if (fit) dynTargetRef.current = fit;
+        }
+        if (dynTargetRef.current) {
+          const dt = dynTargetRef.current;
+          const ct = transformRef.current;
+          const lf = 0.04;
+          transformRef.current = {
+            x: ct.x + (dt.x - ct.x) * lf,
+            y: ct.y + (dt.y - ct.y) * lf,
+            k: ct.k + (dt.k - ct.k) * lf,
+          };
+        }
+      } else if (simAlpha <= 0.01) {
+        dynTargetRef.current = null;
+      }
+
       const W = canvas.width;
       const H = canvas.height;
       const t = transformRef.current;
@@ -164,14 +215,14 @@ export function Canvas({
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
 
-      // Fix 5: zoom-aware orb sizes
+      // zoom-aware orb sizes
       const hubR = t.k < 0.3 ? 20 : 40;
       const jobR = t.k < 0.3 ? 6 : t.k < 0.6 ? 12 : 16;
 
       const hubs = ns.filter((n): n is HubNode => n.type === 'hub');
       const jobs = ns.filter((n): n is JobNode => n.type === 'job');
 
-      // Fix 4: count visible job nodes per hub for spoke culling
+      // count visible job nodes per hub for spoke culling
       const hubJobCounts = new Map<string, number>();
       for (const jn of jobs) {
         const hubId = `hub:${jn.repo}`;
@@ -199,31 +250,28 @@ export function Canvas({
         const tgt = link.target as CanvasNode;
         const sx = src.x ?? 0;
         const sy = src.y ?? 0;
-        const tx = tgt.x ?? 0;
-        const ty = tgt.y ?? 0;
+        const tx2 = tgt.x ?? 0;
+        const ty2 = tgt.y ?? 0;
 
-        // Hub is target, job is source — get the hub's color
         const hub = (tgt.type === 'hub' ? tgt : src) as HubNode;
 
-        // Fix 4: skip spokes for large clusters (>30 visible nodes)
         if ((hubJobCounts.get(hub.id) ?? 0) > 30) continue;
         const hubColor = HUB_COLORS[hub.colorIndex];
 
-        // Perpendicular wobble
-        const dx = tx - sx;
-        const dy = ty - sy;
+        const dx = tx2 - sx;
+        const dy = ty2 - sy;
         const len = Math.sqrt(dx * dx + dy * dy) || 1;
         const px = -dy / len;
         const py = dx / len;
         const jobNode = (src.type === 'job' ? src : tgt) as JobNode;
         const wobble = Math.sin(now / 2000 + (jobNode.x ?? 0) * 0.01) * 12;
-        const mx = (sx + tx) / 2 + px * wobble;
-        const my = (sy + ty) / 2 + py * wobble;
+        const mx = (sx + tx2) / 2 + px * wobble;
+        const my = (sy + ty2) / 2 + py * wobble;
 
         ctx.beginPath();
         ctx.moveTo(sx, sy);
-        ctx.quadraticCurveTo(mx, my, tx, ty);
-        ctx.strokeStyle = hubColor.fill + '2e'; // ~18% opacity
+        ctx.quadraticCurveTo(mx, my, tx2, ty2);
+        ctx.strokeStyle = hubColor.fill + '2e';
         ctx.lineWidth = 1;
         ctx.stroke();
       }
@@ -235,14 +283,14 @@ export function Canvas({
         const tgt = link.target as CanvasNode;
         const sx = src.x ?? 0;
         const sy = src.y ?? 0;
-        const tx = tgt.x ?? 0;
-        const ty = tgt.y ?? 0;
-        const mx = (sx + tx) / 2 + (ty - sy) * 0.3;
-        const my = (sy + ty) / 2 - (tx - sx) * 0.3;
+        const tx2 = tgt.x ?? 0;
+        const ty2 = tgt.y ?? 0;
+        const mx = (sx + tx2) / 2 + (ty2 - sy) * 0.3;
+        const my = (sy + ty2) / 2 - (tx2 - sx) * 0.3;
 
         ctx.beginPath();
         ctx.moveTo(sx, sy);
-        ctx.quadraticCurveTo(mx, my, tx, ty);
+        ctx.quadraticCurveTo(mx, my, tx2, ty2);
         ctx.strokeStyle = 'rgba(100,80,60,0.18)';
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -256,7 +304,6 @@ export function Canvas({
         const isHovered = hovId === hub.id;
         const isSelected = selId === hub.id;
 
-        // Hub glow
         const grd = ctx.createRadialGradient(hx, hy, 0, hx, hy, hubR * 2.2);
         grd.addColorStop(0, color.fill + 'aa');
         grd.addColorStop(0.5, color.glow);
@@ -266,13 +313,11 @@ export function Canvas({
         ctx.fillStyle = grd;
         ctx.fill();
 
-        // Hub fill
         ctx.beginPath();
         ctx.arc(hx, hy, hubR, 0, Math.PI * 2);
         ctx.fillStyle = color.fill;
         ctx.fill();
 
-        // Hub shine
         const shine = ctx.createRadialGradient(hx - hubR * 0.3, hy - hubR * 0.3, 0, hx - hubR * 0.3, hy - hubR * 0.3, hubR * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.55)');
         shine.addColorStop(1, 'transparent');
@@ -281,7 +326,6 @@ export function Canvas({
         ctx.fillStyle = shine;
         ctx.fill();
 
-        // Hub initial letter
         ctx.font = `bold ${hubR * 0.8}px DM Sans, system-ui`;
         ctx.fillStyle = 'rgba(255,255,255,0.9)';
         ctx.textAlign = 'center';
@@ -289,18 +333,15 @@ export function Canvas({
         ctx.fillText(hub.label[0]?.toUpperCase() ?? '?', hx, hy + 1);
         ctx.textBaseline = 'alphabetic';
 
-        // Repo name below hub
         ctx.font = '12px DM Sans, system-ui';
         ctx.fillStyle = 'rgba(80,60,40,0.65)';
         ctx.textAlign = 'center';
         ctx.fillText(hub.label.slice(0, 22), hx, hy + hubR + 16);
 
-        // Fix 3: total job count below repo name
         ctx.font = '9px system-ui';
         ctx.fillStyle = 'rgba(80,60,40,0.5)';
         ctx.fillText(`${hub.totalCount} jobs`, hx, hy + hubR + 30);
 
-        // Hover/selection ring
         if (isHovered || isSelected) {
           ctx.beginPath();
           ctx.arc(hx, hy, hubR + 6, 0, Math.PI * 2);
@@ -316,7 +357,6 @@ export function Canvas({
       for (const jn of jobs) {
         const jx = jn.x ?? 0;
         const jy = jn.y ?? 0;
-        // Render offset wobble — independent per-planet using x/y as phase seeds
         const wobbleX = Math.sin(now / 900 + jx * 0.05) * 4;
         const wobbleY = Math.cos(now / 1100 + jy * 0.05) * 4;
         const rx = jx + wobbleX;
@@ -329,7 +369,6 @@ export function Canvas({
         const fill = statusFill(status);
         const glowColor = statusGlowColor(status);
 
-        // Bloom scale for new orbs
         let scale = 1;
         const bStart = bloomRef.current.get(jn.id);
         if (bStart !== undefined) {
@@ -341,7 +380,6 @@ export function Canvas({
           }
         }
 
-        // Pulsing radius for running orbs
         const r = isRunning ? jobR + Math.sin(now / 600) * 2 : jobR;
 
         ctx.save();
@@ -351,7 +389,6 @@ export function Canvas({
           ctx.translate(-rx, -ry);
         }
 
-        // Job glow
         const grd = ctx.createRadialGradient(rx, ry, 0, rx, ry, r * 1.8);
         grd.addColorStop(0, fill);
         grd.addColorStop(1, 'transparent');
@@ -360,13 +397,11 @@ export function Canvas({
         ctx.fillStyle = grd;
         ctx.fill();
 
-        // Job fill
         ctx.beginPath();
         ctx.arc(rx, ry, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;
         ctx.fill();
 
-        // Job shine
         const shine = ctx.createRadialGradient(rx - r * 0.35, ry - r * 0.3, 0, rx - r * 0.35, ry - r * 0.3, r * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.45)');
         shine.addColorStop(1, 'transparent');
@@ -375,7 +410,6 @@ export function Canvas({
         ctx.fillStyle = shine;
         ctx.fill();
 
-        // Selection / hover ring
         if (isSelected || isHovered) {
           ctx.beginPath();
           ctx.arc(rx, ry, r + 5, 0, Math.PI * 2);
@@ -386,7 +420,6 @@ export function Canvas({
           ctx.globalAlpha = 1;
         }
 
-        // Running pulse ring
         if (isRunning) {
           const pulseR = r * 1.8 + Math.sin(now / 500) * 5;
           ctx.beginPath();
@@ -396,7 +429,6 @@ export function Canvas({
           ctx.stroke();
         }
 
-        // Status dot (top-right)
         const dotX = rx + r * 0.65;
         const dotY = ry - r * 0.65;
         ctx.beginPath();
@@ -458,7 +490,6 @@ export function Canvas({
     if (!panToRepo) return;
     const hub = nodesRef.current.find(n => n.type === 'hub' && n.id === `hub:${panToRepo}`) as HubNode | undefined;
     if (!hub) {
-      // Fall back to job cluster centroid
       const repoJobs = nodesRef.current.filter(n => n.type === 'job' && (n as JobNode).repo === panToRepo) as JobNode[];
       if (!repoJobs.length) { onPanComplete(); return; }
       const cx = repoJobs.reduce((s, n) => s + (n.x ?? 0), 0) / repoJobs.length;
@@ -466,7 +497,8 @@ export function Canvas({
       const vw = window.innerWidth - 220;
       const vh = window.innerHeight;
       const targetK = 1.2;
-      setTransform({ x: vw / 2 - cx * targetK, y: vh / 2 - cy * targetK, k: targetK });
+      userInteractedRef.current = true;
+      transformRef.current = { x: vw / 2 - cx * targetK, y: vh / 2 - cy * targetK, k: targetK };
       onPanComplete();
       return;
     }
@@ -474,8 +506,9 @@ export function Canvas({
     const hy = hub.y ?? 1500;
     const vw = window.innerWidth - 220;
     const vh = window.innerHeight;
-    const targetK = 1.4; // hub fills ~1/4 screen
-    setTransform({ x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK });
+    const targetK = 1.4;
+    userInteractedRef.current = true;
+    transformRef.current = { x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK };
     onPanComplete();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panToRepo]);
@@ -483,16 +516,16 @@ export function Canvas({
   // Wheel zoom
   const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
+    userInteractedRef.current = true;
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    setTransform(t => {
-      const newK = Math.min(4, Math.max(0.1, t.k * factor));
-      const canvas = canvasRef.current;
-      if (!canvas) return t;
-      const rect = canvas.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      return { k: newK, x: cx - (cx - t.x) * (newK / t.k), y: cy - (cy - t.y) * (newK / t.k) };
-    });
+    const t = transformRef.current;
+    const newK = Math.min(4, Math.max(0.1, t.k * factor));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    transformRef.current = { k: newK, x: cx - (cx - t.x) * (newK / t.k), y: cy - (cy - t.y) * (newK / t.k) };
   }, []);
 
   useEffect(() => {
@@ -515,13 +548,11 @@ export function Canvas({
   };
 
   const findNode = (wx: number, wy: number): CanvasNode | null => {
-    // Check hubs first (larger hit area)
     for (const n of nodesRef.current) {
       if (n.type !== 'hub') continue;
       const r = HUB_R + 8;
       if (Math.sqrt(((n.x ?? 0) - wx) ** 2 + ((n.y ?? 0) - wy) ** 2) < r) return n;
     }
-    // Then jobs
     let closest: CanvasNode | null = null;
     let minDist = JOB_R + 10;
     for (const n of nodesRef.current) {
@@ -544,9 +575,13 @@ export function Canvas({
     const dy = e.clientY - lastPos.current.y;
 
     if (dragging.current) {
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didPan.current = true;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        didPan.current = true;
+        userInteractedRef.current = true;
+      }
       lastPos.current = { x: e.clientX, y: e.clientY };
-      setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+      const t = transformRef.current;
+      transformRef.current = { ...t, x: t.x + dx, y: t.y + dy };
       return;
     }
 
@@ -582,13 +617,13 @@ export function Canvas({
       if (found.type === 'job') {
         onSelect(found.id === selectedIdRef.current ? null : found.id);
       } else {
-        // Hub clicked — zoom to it
         const hx = found.x ?? 1500;
         const hy = found.y ?? 1500;
         const vw = window.innerWidth - 220;
         const vh = window.innerHeight;
         const targetK = 1.4;
-        setTransform({ x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK });
+        userInteractedRef.current = true;
+        transformRef.current = { x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK };
       }
     } else {
       onSelect(null);
@@ -612,20 +647,45 @@ export function Canvas({
       const dx = e.touches[0].clientX - lastPos.current.x;
       const dy = e.touches[0].clientY - lastPos.current.y;
       lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+      userInteractedRef.current = true;
+      const t = transformRef.current;
+      transformRef.current = { ...t, x: t.x + dx, y: t.y + dy };
     } else if (e.touches.length === 2 && lastTouchDist.current !== null) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const newDist = Math.sqrt(dx * dx + dy * dy);
       const factor = newDist / lastTouchDist.current;
       lastTouchDist.current = newDist;
-      setTransform(t => ({ ...t, k: Math.min(4, Math.max(0.1, t.k * factor)) }));
+      userInteractedRef.current = true;
+      const t = transformRef.current;
+      transformRef.current = { ...t, k: Math.min(4, Math.max(0.1, t.k * factor)) };
     }
   };
 
   const onTouchEnd = () => {
     dragging.current = false;
     lastTouchDist.current = null;
+  };
+
+  // Determine active filter set for pill rendering
+  const allStatusKeys = [...availableStatuses.keys()];
+  const effectiveActiveSet: Set<string> = activeFilters ?? new Set(allStatusKeys);
+
+  const handlePillClick = (status: string) => {
+    const current = activeFilters ?? new Set(allStatusKeys);
+    const next = new Set(current);
+    if (next.has(status)) {
+      next.delete(status);
+      // Don't allow deselecting all — keep at least one
+      if (next.size === 0) return;
+    } else {
+      next.add(status);
+    }
+    // If all are selected again, normalize back to null (all)
+    if (next.size === allStatusKeys.length) {
+      onFiltersChange(next); // pass the full set — App normalizes to null? No, let's just pass it
+    }
+    onFiltersChange(next);
   };
 
   return (
@@ -655,9 +715,61 @@ export function Canvas({
         onTouchEnd={onTouchEnd}
       />
 
-      {/* Zoom hint */}
+      {/* Status filter pills — top-left overlay */}
+      {availableStatuses.size > 0 && (
+        <div style={{
+          position: 'absolute', left: 16, top: 16,
+          display: 'flex', flexWrap: 'wrap', gap: 6,
+          pointerEvents: 'auto',
+          zIndex: 10,
+        }}>
+          {[...availableStatuses.entries()].map(([status, count]) => {
+            const isActive = effectiveActiveSet.has(status);
+            const color = STATUS_FILL[status] ?? STATUS_FILL.pending;
+            return (
+              <button
+                key={status}
+                onClick={() => handlePillClick(status)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  border: isActive ? `1.5px solid ${color}` : '1.5px solid transparent',
+                  background: '#EDE8DF',
+                  cursor: 'pointer',
+                  fontFamily: 'DM Sans, system-ui, sans-serif',
+                  fontSize: 12,
+                  color: isActive ? '#3D2E1E' : 'rgba(100,80,50,0.35)',
+                  opacity: isActive ? 1 : 0.55,
+                  transition: 'opacity 0.15s, border-color 0.15s, color 0.15s',
+                  outline: 'none',
+                  boxShadow: isActive ? `0 0 0 2px ${color}22` : 'none',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: color,
+                  display: 'inline-block',
+                  flexShrink: 0,
+                  opacity: isActive ? 1 : 0.4,
+                }} />
+                <span>{status}</span>
+                <span style={{
+                  marginLeft: 2,
+                  fontSize: 10,
+                  color: isActive ? 'rgba(80,60,40,0.5)' : 'rgba(100,80,50,0.25)',
+                }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Zoom hint — below filter pills */}
       <div style={{
-        position: 'absolute', left: 20, top: 16,
+        position: 'absolute', left: 20,
+        top: availableStatuses.size > 0 ? 52 : 16,
         fontSize: 11, color: 'rgba(100,80,50,0.35)',
         fontFamily: 'DM Sans, system-ui, sans-serif',
         pointerEvents: 'none', userSelect: 'none',
