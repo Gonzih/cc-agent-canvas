@@ -21,6 +21,7 @@ export interface Job {
   fy?: number | null;
 }
 
+// Kept for backwards compat — represents a job node with resolved position
 export interface OrbNode extends Job {
   x: number;
   y: number;

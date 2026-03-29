@@ -1,24 +1,28 @@
-// Warm hue families for repos — soft, desaturated
-const REPO_PALETTE = [
-  '#8BA888', // soft sage green
-  '#A88B8B', // dusty rose
-  '#8B9BA8', // slate blue
-  '#A8A08B', // warm tan
-  '#9B8BA8', // muted lavender
-  '#A89B8B', // warm brown
-  '#8BA8A0', // seafoam
-  '#A8908B', // terracotta
+// Hub colors — warm distinct hues, low saturation (Gource-style solar system)
+export const HUB_COLORS = [
+  { fill: '#C4A882', glow: 'rgba(196,168,130,0.4)' },  // warm sand
+  { fill: '#82B4C4', glow: 'rgba(130,180,196,0.4)' },  // soft blue
+  { fill: '#A8C482', glow: 'rgba(168,196,130,0.4)' },  // soft green
+  { fill: '#C482A8', glow: 'rgba(196,130,168,0.4)' },  // muted rose
+  { fill: '#C4C482', glow: 'rgba(196,196,130,0.4)' },  // warm yellow
+  { fill: '#A882C4', glow: 'rgba(168,130,196,0.4)' },  // soft purple
+  { fill: '#82C4A8', glow: 'rgba(130,196,168,0.4)' },  // teal
+  { fill: '#C49882', glow: 'rgba(196,152,130,0.4)' },  // terracotta
 ];
 
-const repoColorMap = new Map<string, string>();
+const repoColorMap = new Map<string, number>();
 let colorIndex = 0;
 
-export function getRepoColor(repo: string): string {
+export function getRepoColorIndex(repo: string): number {
   if (!repoColorMap.has(repo)) {
-    repoColorMap.set(repo, REPO_PALETTE[colorIndex % REPO_PALETTE.length]);
+    repoColorMap.set(repo, colorIndex % HUB_COLORS.length);
     colorIndex++;
   }
   return repoColorMap.get(repo)!;
+}
+
+export function getRepoColor(repo: string): string {
+  return HUB_COLORS[getRepoColorIndex(repo)].fill;
 }
 
 export const STATUS_GLOW: Record<string, { fill: string; glow: string; opacity: number }> = {

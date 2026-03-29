@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { useCanvas } from './useCanvas';
+import type { JobNode } from './useCanvas';
 import { Sidebar } from './Sidebar';
 import { Canvas } from './Canvas';
 import { DetailPanel } from './DetailPanel';
-import type { OrbNode } from './types';
+import type { Job } from './types';
 
 export default function App() {
   const { jobs, connected } = useWebSocket();
-  const { nodes, clusterCenters } = useCanvas(jobs);
+  const { nodes, links } = useCanvas(jobs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
@@ -31,9 +32,11 @@ export default function App() {
     prevJobIds.current = current;
   }, [jobs]);
 
-  const selectedJob = useMemo<OrbNode | null>(() => {
+  const selectedJob = useMemo<Job | null>(() => {
     if (!selectedId) return null;
-    return nodes.find(n => n.id === selectedId) ?? null;
+    const node = nodes.find(n => n.id === selectedId);
+    if (!node || node.type !== 'job') return null;
+    return (node as JobNode).job;
   }, [selectedId, nodes]);
 
   const handleSelectRepo = (repo: string | null) => {
@@ -45,20 +48,18 @@ export default function App() {
     <div style={{ background: '#F5F0E8', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <Sidebar
         jobs={jobs}
-        displayCount={jobs.length}
         selectedRepo={selectedRepo}
         onSelectRepo={handleSelectRepo}
         connected={connected}
       />
       <Canvas
         nodes={nodes}
-        jobs={jobs}
+        links={links}
         selectedId={selectedId}
         onSelect={setSelectedId}
         panToRepo={panToRepo}
         onPanComplete={() => setPanToRepo(null)}
         newIds={newIds}
-        clusterCenters={clusterCenters}
       />
       <DetailPanel
         job={selectedJob}

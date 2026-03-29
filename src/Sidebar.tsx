@@ -1,10 +1,9 @@
 import { motion } from 'framer-motion';
-import { getRepoColor, getStatusStyle } from './colors';
+import { getRepoColor, HUB_COLORS, getRepoColorIndex, getStatusStyle } from './colors';
 import type { Job } from './types';
 
 interface SidebarProps {
   jobs: Job[];
-  displayCount: number;
   selectedRepo: string | null;
   onSelectRepo: (repo: string | null) => void;
   connected: boolean;
@@ -38,7 +37,7 @@ function buildRepoStats(jobs: Job[]): RepoStats[] {
   return [...map.values()].sort((a, b) => b.running - a.running || b.total - a.total);
 }
 
-export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connected }: SidebarProps) {
+export function Sidebar({ jobs, selectedRepo, onSelectRepo, connected }: SidebarProps) {
   const repos = buildRepoStats(jobs);
 
   return (
@@ -75,10 +74,7 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
       {/* Total count */}
       <div style={{ padding: '0 18px 16px', borderBottom: '1px solid rgba(180,160,130,0.15)' }}>
         <div style={{ fontSize: 11, color: '#8B7355' }}>
-          {jobs.length} job{jobs.length !== 1 ? 's' : ''} total
-          {displayCount < jobs.length && (
-            <span style={{ color: '#B0998A' }}> · showing {displayCount} most recent</span>
-          )}
+          {jobs.length} job{jobs.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           {(['running', 'done', 'failed'] as const).map(st => {
@@ -119,6 +115,7 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
 
         {repos.map(r => {
           const color = getRepoColor(r.name);
+          const hubColor = HUB_COLORS[getRepoColorIndex(r.name)];
           const isSelected = selectedRepo === r.name;
           return (
             <motion.button
@@ -129,7 +126,7 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
               style={{
                 width: '100%', textAlign: 'left', padding: '9px 10px',
                 marginBottom: 3, borderRadius: 12, border: 'none',
-                background: isSelected ? `${color}22` : 'transparent',
+                background: isSelected ? `${color}28` : 'transparent',
                 cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 fontFamily: 'DM Sans, system-ui, sans-serif',
@@ -137,11 +134,17 @@ export function Sidebar({ jobs, displayCount, selectedRepo, onSelectRepo, connec
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                {/* Hub-colored pill/dot */}
                 <div style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  background: color, flexShrink: 0,
-                  boxShadow: isSelected ? `0 0 6px ${color}` : 'none',
-                }} />
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: hubColor.fill,
+                  flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.9)',
+                  boxShadow: isSelected ? `0 0 8px ${hubColor.fill}` : `0 0 4px ${hubColor.glow}`,
+                }}>
+                  {r.name[0]?.toUpperCase()}
+                </div>
                 <span style={{
                   fontSize: 12, color: '#3D2E1E', fontWeight: isSelected ? 600 : 400,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

@@ -1,16 +1,15 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { OrbNode, Job } from './types';
-import type { ClusterCenter } from './useCanvas';
+import type { CanvasNode, HubNode, JobNode, SimLink } from './useCanvas';
+import { HUB_COLORS } from './colors';
 
 interface CanvasProps {
-  nodes: OrbNode[];
-  jobs: Job[];
+  nodes: CanvasNode[];
+  links: SimLink[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   panToRepo: string | null;
   onPanComplete: () => void;
   newIds: Set<string>;
-  clusterCenters: Record<string, ClusterCenter>;
 }
 
 interface Transform {
@@ -19,8 +18,7 @@ interface Transform {
   k: number;
 }
 
-// Status palette (canvas rendering uses these directly)
-const FILL: Record<string, string> = {
+const STATUS_FILL: Record<string, string> = {
   running:   '#7BB3D4',
   done:      '#7DC4A0',
   failed:    '#D47B7B',
@@ -28,7 +26,7 @@ const FILL: Record<string, string> = {
   pending:   '#C4B8A8',
 };
 
-const GLOW_COLOR: Record<string, string> = {
+const STATUS_GLOW: Record<string, string> = {
   running:   'rgba(123,179,212,0.35)',
   done:      'rgba(125,196,160,0.25)',
   failed:    'rgba(212,123,123,0.25)',
@@ -37,27 +35,14 @@ const GLOW_COLOR: Record<string, string> = {
 };
 
 function statusFill(s?: string): string {
-  return FILL[s?.toLowerCase() ?? ''] ?? FILL.pending;
+  return STATUS_FILL[s?.toLowerCase() ?? ''] ?? STATUS_FILL.pending;
 }
 
 function statusGlowColor(s?: string): string {
-  return GLOW_COLOR[s?.toLowerCase() ?? ''] ?? GLOW_COLOR.pending;
+  return STATUS_GLOW[s?.toLowerCase() ?? ''] ?? STATUS_GLOW.pending;
 }
 
-function getRepo(n: OrbNode): string {
-  return (n.repo_url || n.repoUrl || '').split('/').pop() || 'unknown';
-}
-
-function getLinkPath(sx: number, sy: number, tx: number, ty: number): string {
-  const mx = (sx + tx) / 2 + (ty - sy) * 0.3;
-  const my = (sy + ty) / 2 - (tx - sx) * 0.3;
-  return `M ${sx} ${sy} Q ${mx} ${my} ${tx} ${ty}`;
-}
-
-function drawRoundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number
-) {
+function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -71,11 +56,12 @@ function drawRoundedRect(
   ctx.closePath();
 }
 
-const ORB_R = 18;
+const HUB_R = 40;
+const JOB_R = 16;
 
 export function Canvas({
-  nodes, jobs, selectedId, onSelect,
-  panToRepo, onPanComplete, newIds, clusterCenters,
+  nodes, links, selectedId, onSelect,
+  panToRepo, onPanComplete, newIds,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -83,24 +69,23 @@ export function Canvas({
   const [transform, setTransform] = useState<Transform>(() => {
     const vw = window.innerWidth - 220;
     const vh = window.innerHeight;
-    const k = 0.7;
+    const k = 0.55;
     return { x: vw / 2 - 1500 * k, y: vh / 2 - 1500 * k, k };
   });
 
-  // Refs for RAF loop (avoid stale closures)
-  const nodesRef = useRef<OrbNode[]>(nodes);
+  const nodesRef = useRef<CanvasNode[]>(nodes);
+  const linksRef = useRef<SimLink[]>(links);
   const transformRef = useRef(transform);
-  const clusterCentersRef = useRef(clusterCenters);
   const selectedIdRef = useRef(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
   const bloomRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { linksRef.current = links; }, [links]);
   useEffect(() => { transformRef.current = transform; }, [transform]);
-  useEffect(() => { clusterCentersRef.current = clusterCenters; }, [clusterCenters]);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
-  // Track bloom start times for new orbs
+  // Track bloom start times for new job orbs
   useEffect(() => {
     const now = Date.now();
     for (const id of newIds) {
@@ -121,7 +106,7 @@ export function Canvas({
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  // RAF draw loop — draws cluster blobs + orbs + tooltip
+  // RAF draw loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -134,7 +119,7 @@ export function Canvas({
       const H = canvas.height;
       const t = transformRef.current;
       const ns = nodesRef.current;
-      const centers = clusterCentersRef.current;
+      const ls = linksRef.current;
       const hovId = hoveredIdRef.current;
       const selId = selectedIdRef.current;
       const now = Date.now();
@@ -144,82 +129,197 @@ export function Canvas({
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
 
-      // 1. Cluster background blobs
-      for (const [repo, center] of Object.entries(centers)) {
-        ctx.beginPath();
-        ctx.ellipse(center.x, center.y, 120, 100, 0, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${center.hue}, 30%, 75%, 0.06)`;
-        ctx.fill();
+      const hubs = ns.filter((n): n is HubNode => n.type === 'hub');
+      const jobs = ns.filter((n): n is JobNode => n.type === 'job');
 
-        // Repo name label above blob
-        ctx.font = '11px DM Sans, system-ui';
-        ctx.fillStyle = 'rgba(100,80,60,0.45)';
-        ctx.textAlign = 'center';
-        ctx.fillText(repo.slice(0, 24), center.x, center.y - 115);
+      // 1. Hub glow blobs (large radial gradient, very low opacity)
+      for (const hub of hubs) {
+        const hx = hub.x ?? 0;
+        const hy = hub.y ?? 0;
+        const color = HUB_COLORS[hub.colorIndex];
+        const grd = ctx.createRadialGradient(hx, hy, 0, hx, hy, 160);
+        grd.addColorStop(0, color.glow.replace('0.4)', '0.08)'));
+        grd.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(hx, hy, 160, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
       }
 
-      // 2. Orbs
-      for (const node of ns) {
-        const isRunning = node.status?.toLowerCase() === 'running';
-        const isSelected = selId === node.id;
-        const isHovered = hovId === node.id;
+      // 2. Spoke lines (hub → job) with gentle sinusoidal wobble
+      for (const link of ls) {
+        if (link.linkType !== 'hub-spoke') continue;
+        const src = link.source as CanvasNode;
+        const tgt = link.target as CanvasNode;
+        const sx = src.x ?? 0;
+        const sy = src.y ?? 0;
+        const tx = tgt.x ?? 0;
+        const ty = tgt.y ?? 0;
 
-        const fill = statusFill(node.status);
-        const glowColor = statusGlowColor(node.status);
+        // Hub is target, job is source — get the hub's color
+        const hub = (tgt.type === 'hub' ? tgt : src) as HubNode;
+        const hubColor = HUB_COLORS[hub.colorIndex];
+
+        // Perpendicular wobble
+        const dx = tx - sx;
+        const dy = ty - sy;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const px = -dy / len;
+        const py = dx / len;
+        const jobNode = (src.type === 'job' ? src : tgt) as JobNode;
+        const wobble = Math.sin(now / 2000 + (jobNode.x ?? 0) * 0.01) * 8;
+        const mx = (sx + tx) / 2 + px * wobble;
+        const my = (sy + ty) / 2 + py * wobble;
+
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(mx, my, tx, ty);
+        ctx.strokeStyle = hubColor.fill + '2e'; // ~18% opacity
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // 3. Dependency curves between job nodes
+      for (const link of ls) {
+        if (link.linkType !== 'dep') continue;
+        const src = link.source as CanvasNode;
+        const tgt = link.target as CanvasNode;
+        const sx = src.x ?? 0;
+        const sy = src.y ?? 0;
+        const tx = tgt.x ?? 0;
+        const ty = tgt.y ?? 0;
+        const mx = (sx + tx) / 2 + (ty - sy) * 0.3;
+        const my = (sy + ty) / 2 - (tx - sx) * 0.3;
+
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(mx, my, tx, ty);
+        ctx.strokeStyle = 'rgba(100,80,60,0.18)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // 4. Hub orbs (large, with initial letter + strong glow)
+      for (const hub of hubs) {
+        const hx = hub.x ?? 0;
+        const hy = hub.y ?? 0;
+        const color = HUB_COLORS[hub.colorIndex];
+        const isHovered = hovId === hub.id;
+        const isSelected = selId === hub.id;
+
+        // Hub glow
+        const grd = ctx.createRadialGradient(hx, hy, 0, hx, hy, HUB_R * 2.2);
+        grd.addColorStop(0, color.fill + 'aa');
+        grd.addColorStop(0.5, color.glow);
+        grd.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(hx, hy, HUB_R * 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+
+        // Hub fill
+        ctx.beginPath();
+        ctx.arc(hx, hy, HUB_R, 0, Math.PI * 2);
+        ctx.fillStyle = color.fill;
+        ctx.fill();
+
+        // Hub shine
+        const shine = ctx.createRadialGradient(hx - HUB_R * 0.3, hy - HUB_R * 0.3, 0, hx - HUB_R * 0.3, hy - HUB_R * 0.3, HUB_R * 0.8);
+        shine.addColorStop(0, 'rgba(255,255,255,0.55)');
+        shine.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(hx, hy, HUB_R, 0, Math.PI * 2);
+        ctx.fillStyle = shine;
+        ctx.fill();
+
+        // Hub initial letter
+        ctx.font = `bold ${HUB_R * 0.8}px DM Sans, system-ui`;
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(hub.label[0]?.toUpperCase() ?? '?', hx, hy + 1);
+        ctx.textBaseline = 'alphabetic';
+
+        // Repo name below hub
+        ctx.font = '12px DM Sans, system-ui';
+        ctx.fillStyle = 'rgba(80,60,40,0.65)';
+        ctx.textAlign = 'center';
+        ctx.fillText(hub.label.slice(0, 22), hx, hy + HUB_R + 16);
+
+        // Hover/selection ring
+        if (isHovered || isSelected) {
+          ctx.beginPath();
+          ctx.arc(hx, hy, HUB_R + 6, 0, Math.PI * 2);
+          ctx.strokeStyle = color.fill;
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.globalAlpha = 0.7;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // 5. Job orbs
+      for (const jn of jobs) {
+        const jx = jn.x ?? 0;
+        const jy = jn.y ?? 0;
+        const status = jn.job.status;
+        const isRunning = status?.toLowerCase() === 'running';
+        const isSelected = selId === jn.id;
+        const isHovered = hovId === jn.id;
+
+        const fill = statusFill(status);
+        const glowColor = statusGlowColor(status);
 
         // Bloom scale for new orbs
         let scale = 1;
-        const bStart = bloomRef.current.get(node.id);
+        const bStart = bloomRef.current.get(jn.id);
         if (bStart !== undefined) {
           const elapsed = now - bStart;
           if (elapsed < 400) {
             scale = elapsed / 400;
           } else {
-            bloomRef.current.delete(node.id);
+            bloomRef.current.delete(jn.id);
           }
         }
 
         // Pulsing radius for running orbs
-        const r = isRunning ? ORB_R + Math.sin(now / 600) * 2 : ORB_R;
+        const r = isRunning ? JOB_R + Math.sin(now / 600) * 2 : JOB_R;
 
         ctx.save();
         if (scale < 1) {
-          ctx.translate(node.x, node.y);
+          ctx.translate(jx, jy);
           ctx.scale(scale, scale);
-          ctx.translate(-node.x, -node.y);
+          ctx.translate(-jx, -jy);
         }
 
-        // Glow — radial gradient from fill color to transparent
-        const grd = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, r * 1.8);
+        // Job glow
+        const grd = ctx.createRadialGradient(jx, jy, 0, jx, jy, r * 1.8);
         grd.addColorStop(0, fill);
         grd.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r * 1.8, 0, Math.PI * 2);
+        ctx.arc(jx, jy, r * 1.8, 0, Math.PI * 2);
         ctx.fillStyle = grd;
         ctx.fill();
 
-        // Main orb fill
+        // Job fill
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        ctx.arc(jx, jy, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;
         ctx.fill();
 
-        // Highlight shine (top-left)
-        const shine = ctx.createRadialGradient(
-          node.x - r * 0.35, node.y - r * 0.3, 0,
-          node.x - r * 0.35, node.y - r * 0.3, r * 0.8
-        );
+        // Job shine
+        const shine = ctx.createRadialGradient(jx - r * 0.35, jy - r * 0.3, 0, jx - r * 0.35, jy - r * 0.3, r * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.45)');
         shine.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        ctx.arc(jx, jy, r, 0, Math.PI * 2);
         ctx.fillStyle = shine;
         ctx.fill();
 
         // Selection / hover ring
         if (isSelected || isHovered) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
+          ctx.arc(jx, jy, r + 5, 0, Math.PI * 2);
           ctx.strokeStyle = fill;
           ctx.lineWidth = isSelected ? 2.5 : 1.5;
           ctx.globalAlpha = 0.7;
@@ -227,50 +327,60 @@ export function Canvas({
           ctx.globalAlpha = 1;
         }
 
-        // Running orb pulse ring
+        // Running pulse ring
         if (isRunning) {
           const pulseR = r * 1.8 + Math.sin(now / 500) * 5;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, pulseR, 0, Math.PI * 2);
+          ctx.arc(jx, jy, pulseR, 0, Math.PI * 2);
           ctx.strokeStyle = glowColor;
           ctx.lineWidth = 2;
           ctx.stroke();
         }
 
-        // Status dot (top-right corner)
-        const dotX = node.x + r * 0.65;
-        const dotY = node.y - r * 0.65;
+        // Status dot (top-right)
+        const dotX = jx + r * 0.65;
+        const dotY = jy - r * 0.65;
         ctx.beginPath();
-        ctx.arc(dotX, dotY, 4.5, 0, Math.PI * 2);
+        ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(250,246,238,0.9)';
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(dotX, dotY, 3, 0, Math.PI * 2);
+        ctx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
         ctx.fillStyle = fill;
         ctx.fill();
 
         ctx.restore();
       }
 
-      // 3. Canvas tooltip for hovered node
-      if (hovId && t.k > 0.4) {
+      // 6. Tooltip for hovered node
+      if (hovId && t.k > 0.3) {
         const hn = ns.find(n => n.id === hovId);
         if (hn) {
-          const label = (hn.title || hn.task || hn.id).slice(0, 40);
+          let label = '';
+          if (hn.type === 'job') {
+            const j = hn.job;
+            label = (j.title || j.task || j.id).replace(/^#+\s*/, '').split('\n')[0].trim().slice(0, 40);
+          } else {
+            label = hn.label;
+          }
+          const hx = hn.x ?? 0;
+          const hy = hn.y ?? 0;
+          const orbR = hn.type === 'hub' ? HUB_R : JOB_R;
+
           ctx.font = 'bold 11px DM Sans, system-ui';
           const tw = ctx.measureText(label).width;
           const pw = tw + 18;
           const ph = 24;
-          const px = hn.x - pw / 2;
-          const py = hn.y - ORB_R * 1.8 - ph - 6;
+          const px = hx - pw / 2;
+          const py = hy - orbR * 1.8 - ph - 8;
 
           drawRoundedRect(ctx, px, py, pw, ph, 5);
-          ctx.fillStyle = 'rgba(245,240,232,0.92)';
+          ctx.fillStyle = 'rgba(245,240,232,0.95)';
           ctx.fill();
 
           ctx.fillStyle = '#3D2E1E';
           ctx.textAlign = 'center';
-          ctx.fillText(label, hn.x, py + ph - 7);
+          ctx.fillText(label, hx, py + ph - 7);
         }
       }
 
@@ -284,36 +394,45 @@ export function Canvas({
     };
   }, []); // empty — uses refs only
 
-  // Pan to repo
+  // Pan to repo hub: zoom in so hub fills ~1/4 of screen
   useEffect(() => {
-    if (!panToRepo || !nodes.length) return;
-    const repoNodes = nodes.filter(n => getRepo(n) === panToRepo);
-    if (!repoNodes.length) { onPanComplete(); return; }
-    const cx = repoNodes.reduce((s, n) => s + n.x, 0) / repoNodes.length;
-    const cy = repoNodes.reduce((s, n) => s + n.y, 0) / repoNodes.length;
+    if (!panToRepo) return;
+    const hub = nodesRef.current.find(n => n.type === 'hub' && n.id === `hub:${panToRepo}`) as HubNode | undefined;
+    if (!hub) {
+      // Fall back to job cluster centroid
+      const repoJobs = nodesRef.current.filter(n => n.type === 'job' && (n as JobNode).repo === panToRepo) as JobNode[];
+      if (!repoJobs.length) { onPanComplete(); return; }
+      const cx = repoJobs.reduce((s, n) => s + (n.x ?? 0), 0) / repoJobs.length;
+      const cy = repoJobs.reduce((s, n) => s + (n.y ?? 0), 0) / repoJobs.length;
+      const vw = window.innerWidth - 220;
+      const vh = window.innerHeight;
+      const targetK = 1.2;
+      setTransform({ x: vw / 2 - cx * targetK, y: vh / 2 - cy * targetK, k: targetK });
+      onPanComplete();
+      return;
+    }
+    const hx = hub.x ?? 1500;
+    const hy = hub.y ?? 1500;
     const vw = window.innerWidth - 220;
     const vh = window.innerHeight;
-    const targetK = 0.85;
-    setTransform({ x: vw / 2 - cx * targetK, y: vh / 2 - cy * targetK, k: targetK });
+    const targetK = 1.4; // hub fills ~1/4 screen
+    setTransform({ x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK });
     onPanComplete();
-  }, [panToRepo, nodes, onPanComplete]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panToRepo]);
 
   // Wheel zoom
   const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     setTransform(t => {
-      const newK = Math.min(3, Math.max(0.1, t.k * factor));
+      const newK = Math.min(4, Math.max(0.1, t.k * factor));
       const canvas = canvasRef.current;
       if (!canvas) return t;
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
-      return {
-        k: newK,
-        x: cx - (cx - t.x) * (newK / t.k),
-        y: cy - (cy - t.y) * (newK / t.k),
-      };
+      return { k: newK, x: cx - (cx - t.x) * (newK / t.k), y: cy - (cy - t.y) * (newK / t.k) };
     });
   }, []);
 
@@ -330,23 +449,26 @@ export function Canvas({
   const lastPos = useRef({ x: 0, y: 0 });
   const lastTouchDist = useRef<number | null>(null);
 
-  // Convert screen coords → world coords
   const screenToWorld = (clientX: number, clientY: number, canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect();
     const t = transformRef.current;
-    return {
-      x: (clientX - rect.left - t.x) / t.k,
-      y: (clientY - rect.top - t.y) / t.k,
-    };
+    return { x: (clientX - rect.left - t.x) / t.k, y: (clientY - rect.top - t.y) / t.k };
   };
 
-  // Find node near world point
-  const findNode = (wx: number, wy: number, radius: number): OrbNode | null => {
-    let closest: OrbNode | null = null;
-    let minDist = radius;
-    for (const node of nodesRef.current) {
-      const d = Math.sqrt((node.x - wx) ** 2 + (node.y - wy) ** 2);
-      if (d < minDist) { minDist = d; closest = node; }
+  const findNode = (wx: number, wy: number): CanvasNode | null => {
+    // Check hubs first (larger hit area)
+    for (const n of nodesRef.current) {
+      if (n.type !== 'hub') continue;
+      const r = HUB_R + 8;
+      if (Math.sqrt(((n.x ?? 0) - wx) ** 2 + ((n.y ?? 0) - wy) ** 2) < r) return n;
+    }
+    // Then jobs
+    let closest: CanvasNode | null = null;
+    let minDist = JOB_R + 10;
+    for (const n of nodesRef.current) {
+      if (n.type !== 'job') continue;
+      const d = Math.sqrt(((n.x ?? 0) - wx) ** 2 + ((n.y ?? 0) - wy) ** 2);
+      if (d < minDist) { minDist = d; closest = n; }
     }
     return closest;
   };
@@ -369,11 +491,10 @@ export function Canvas({
       return;
     }
 
-    // Hover detection
     const canvas = canvasRef.current;
     if (!canvas) return;
     const { x: wx, y: wy } = screenToWorld(e.clientX, e.clientY, canvas);
-    const found = findNode(wx, wy, 30);
+    const found = findNode(wx, wy);
     const newId = found?.id ?? null;
     if (newId !== hoveredIdRef.current) {
       hoveredIdRef.current = newId;
@@ -397,9 +518,19 @@ export function Canvas({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const { x: wx, y: wy } = screenToWorld(e.clientX, e.clientY, canvas);
-    const found = findNode(wx, wy, 22);
+    const found = findNode(wx, wy);
     if (found) {
-      onSelect(found.id === selectedIdRef.current ? null : found.id);
+      if (found.type === 'job') {
+        onSelect(found.id === selectedIdRef.current ? null : found.id);
+      } else {
+        // Hub clicked — zoom to it
+        const hx = found.x ?? 1500;
+        const hy = found.y ?? 1500;
+        const vw = window.innerWidth - 220;
+        const vh = window.innerHeight;
+        const targetK = 1.4;
+        setTransform({ x: vw / 2 - hx * targetK, y: vh / 2 - hy * targetK, k: targetK });
+      }
     } else {
       onSelect(null);
     }
@@ -429,7 +560,7 @@ export function Canvas({
       const newDist = Math.sqrt(dx * dx + dy * dy);
       const factor = newDist / lastTouchDist.current;
       lastTouchDist.current = newDist;
-      setTransform(t => ({ ...t, k: Math.min(3, Math.max(0.1, t.k * factor)) }));
+      setTransform(t => ({ ...t, k: Math.min(4, Math.max(0.1, t.k * factor)) }));
     }
   };
 
@@ -437,20 +568,6 @@ export function Canvas({
     dragging.current = false;
     lastTouchDist.current = null;
   };
-
-  // Build dependency links for SVG overlay — use dependsOn array with resumedFrom fallback
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const links: { sourceId: string; targetId: string }[] = [];
-  jobs.forEach(j => {
-    const parents = j.dependsOn?.length
-      ? j.dependsOn
-      : j.depends_on ? [j.depends_on] : [];
-    parents.forEach(parentId => {
-      if (nodeMap.has(parentId) && nodeMap.has(j.id)) {
-        links.push({ sourceId: parentId, targetId: j.id });
-      }
-    });
-  });
 
   return (
     <div style={{
@@ -460,7 +577,6 @@ export function Canvas({
       height: '100vh',
       overflow: 'hidden',
     }}>
-      {/* Main canvas — orbs, blobs, tooltip */}
       <canvas
         ref={canvasRef}
         style={{
@@ -480,39 +596,6 @@ export function Canvas({
         onTouchEnd={onTouchEnd}
       />
 
-      {/* SVG overlay — dependency curves only, pointer-events disabled */}
-      <svg
-        style={{
-          position: 'absolute', inset: 0,
-          width: '100%', height: '100%',
-          pointerEvents: 'none',
-          overflow: 'visible',
-        }}
-      >
-        <defs>
-          <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(100,80,60,0.3)" />
-          </marker>
-        </defs>
-        <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
-          {links.map(l => {
-            const src = nodeMap.get(l.sourceId);
-            const tgt = nodeMap.get(l.targetId);
-            if (!src || !tgt) return null;
-            return (
-              <path
-                key={`${l.sourceId}-${l.targetId}`}
-                d={getLinkPath(src.x, src.y, tgt.x, tgt.y)}
-                fill="none"
-                stroke="rgba(100,80,60,0.22)"
-                strokeWidth={1.2}
-                markerEnd="url(#arrow)"
-              />
-            );
-          })}
-        </g>
-      </svg>
-
       {/* Zoom hint */}
       <div style={{
         position: 'absolute', left: 20, top: 16,
@@ -520,7 +603,7 @@ export function Canvas({
         fontFamily: 'DM Sans, system-ui, sans-serif',
         pointerEvents: 'none', userSelect: 'none',
       }}>
-        scroll to zoom · drag to pan
+        scroll to zoom · drag to pan · click hub to focus
       </div>
     </div>
   );
