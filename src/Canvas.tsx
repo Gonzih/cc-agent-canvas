@@ -15,7 +15,9 @@ interface CanvasProps {
   onFiltersChange: (filters: Set<string>) => void;
   availableStatuses: Map<string, number>;
   simRef: React.MutableRefObject<d3.Simulation<CanvasNode, SimLink> | null>;
-  forceMultiplierRef: React.MutableRefObject<number>;
+  blackHoleStrengthRef: React.MutableRefObject<number>;
+  sunFieldRef: React.MutableRefObject<number>;
+  planetFieldRef: React.MutableRefObject<number>;
   hoveredRepo: string | null;
 }
 
@@ -93,9 +95,11 @@ export function Canvas({
   nodes, links, selectedId, onSelect,
   panToRepo, onPanComplete, newIds,
   activeFilters, onFiltersChange, availableStatuses, simRef,
-  forceMultiplierRef, hoveredRepo,
+  blackHoleStrengthRef, sunFieldRef, planetFieldRef, hoveredRepo,
 }: CanvasProps) {
-  const [displayMultiplier, setDisplayMultiplier] = useState(2.0);
+  const [displayBlackHole, setDisplayBlackHole] = useState(0.08);
+  const [displaySunField, setDisplaySunField] = useState(2.0);
+  const [displayPlanetField, setDisplayPlanetField] = useState(1.0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -858,38 +862,73 @@ export function Canvas({
         scroll to zoom · drag to pan · click hub to focus
       </div>
 
-      {/* Gravity slider — bottom right */}
+      {/* Physics sliders — bottom right */}
       <div style={{
         position: 'absolute', bottom: 24, right: 24,
-        display: 'flex', alignItems: 'center', gap: 8,
+        display: 'flex', flexDirection: 'column', gap: 6,
         fontSize: 11, color: 'rgba(80,60,40,0.5)',
         fontFamily: 'DM Sans, system-ui, sans-serif',
         pointerEvents: 'auto',
         zIndex: 10,
         userSelect: 'none',
       }}>
-        <span>gravity</span>
-        <input
-          type="range"
-          min={0.5}
-          max={100}
-          step={0.5}
-          value={displayMultiplier}
-          onChange={e => {
-            const val = parseFloat(e.target.value);
-            forceMultiplierRef.current = val;
-            setDisplayMultiplier(val);
-            if (simRef.current) {
-              simRef.current.alpha(0.3).restart();
-            }
-          }}
-          style={{
-            width: 100,
-            accentColor: 'rgba(80,60,40,0.4)',
-            cursor: 'pointer',
-          }}
-        />
-        <span>{displayMultiplier.toFixed(1)}x</span>
+        {/* Black hole pull */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 72, textAlign: 'right' }}>black hole</span>
+          <input
+            type="range"
+            min={0.01}
+            max={2.0}
+            step={0.01}
+            value={displayBlackHole}
+            onChange={e => {
+              const val = parseFloat(e.target.value);
+              blackHoleStrengthRef.current = val;
+              setDisplayBlackHole(val);
+              if (simRef.current) simRef.current.alpha(0.3).restart();
+            }}
+            style={{ width: 100, accentColor: 'rgba(80,60,40,0.4)', cursor: 'pointer' }}
+          />
+          <span style={{ width: 38 }}>{displayBlackHole.toFixed(2)}x</span>
+        </div>
+        {/* Sun field */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 72, textAlign: 'right' }}>sun field</span>
+          <input
+            type="range"
+            min={0.5}
+            max={100}
+            step={0.5}
+            value={displaySunField}
+            onChange={e => {
+              const val = parseFloat(e.target.value);
+              sunFieldRef.current = val;
+              setDisplaySunField(val);
+              if (simRef.current) simRef.current.alpha(0.3).restart();
+            }}
+            style={{ width: 100, accentColor: 'rgba(80,60,40,0.4)', cursor: 'pointer' }}
+          />
+          <span style={{ width: 38 }}>{displaySunField.toFixed(1)}x</span>
+        </div>
+        {/* Planet field */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 72, textAlign: 'right' }}>planet field</span>
+          <input
+            type="range"
+            min={0.5}
+            max={50}
+            step={0.5}
+            value={displayPlanetField}
+            onChange={e => {
+              const val = parseFloat(e.target.value);
+              planetFieldRef.current = val;
+              setDisplayPlanetField(val);
+              if (simRef.current) simRef.current.alpha(0.3).restart();
+            }}
+            style={{ width: 100, accentColor: 'rgba(80,60,40,0.4)', cursor: 'pointer' }}
+          />
+          <span style={{ width: 38 }}>{displayPlanetField.toFixed(1)}x</span>
+        </div>
       </div>
     </div>
   );

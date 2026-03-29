@@ -39,12 +39,12 @@ function getRepo(j: Job): string {
   return (j.repo_url || j.repoUrl || '').split('/').pop() || 'unknown';
 }
 
-function makeBlackHoleForce(): d3.Force<CanvasNode, SimLink> {
+function makeBlackHoleForce(strengthRef: { current: number }): d3.Force<CanvasNode, SimLink> {
   let _nodes: CanvasNode[] = [];
   function force(alpha: number) {
     for (const n of _nodes) {
       if (n.type !== 'hub') continue;
-      const strength = 0.08 * alpha;
+      const strength = strengthRef.current * alpha;
       n.vx = (n.vx ?? 0) - ((n.x ?? WIDTH / 2) - WIDTH / 2) * strength;
       n.vy = (n.vy ?? 0) - ((n.y ?? HEIGHT / 2) - HEIGHT / 2) * strength;
     }
@@ -80,16 +80,18 @@ function makePlanetTrailForce(): d3.Force<CanvasNode, SimLink> {
 
 function buildSimForces(
   sim: d3.Simulation<CanvasNode, { source: string; target: string; linkType: 'hub-spoke' | 'dep' }>,
-  multiplierRef: { current: number },
+  blackHoleStrengthRef: { current: number },
+  sunFieldRef: { current: number },
+  planetFieldRef: { current: number },
 ) {
-  // Charge: hub repulsion is filter-reactive (reads visibleJobCount), jobs get fixed charge
+  // Charge: hub repulsion is filter-reactive (reads visibleJobCount), jobs scale with planetFieldRef
   sim.force('charge', d3.forceManyBody<CanvasNode>()
     .strength(n => {
       if (n.type === 'hub') {
         const jobs = (n as HubNode).visibleJobCount ?? 0;
-        return Math.max(-60, -(160 + jobs * multiplierRef.current * 12));
+        return Math.max(-60, -(160 + jobs * sunFieldRef.current * 12));
       }
-      return -150;
+      return -(150 * planetFieldRef.current);
     })
     .distanceMax(600)
   );
@@ -101,7 +103,7 @@ function buildSimForces(
   }));
 
   // Black hole — persistent central attractor pulling hubs toward sim center
-  sim.force('blackhole', makeBlackHoleForce());
+  sim.force('blackhole', makeBlackHoleForce(blackHoleStrengthRef));
 
   // Planet trail — jobs spring toward their parent hub at desired orbit distance
   sim.force('planetTrail', makePlanetTrailForce());
@@ -114,7 +116,9 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
   const nodesRef = useRef<CanvasNode[]>([]);
   // Full unfiltered pool: all hubs + all LOD-visible jobs
   const allNodesRef = useRef<CanvasNode[]>([]);
-  const forceMultiplierRef = useRef(2.0);
+  const blackHoleStrengthRef = useRef(0.08);
+  const sunFieldRef = useRef(2.0);
+  const planetFieldRef = useRef(1.0);
   nodesRef.current = nodes;
 
   useEffect(() => {
@@ -239,7 +243,7 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
         if (lf) setLinks([...(lf.links() as SimLink[])]);
       });
 
-    buildSimForces(sim, forceMultiplierRef);
+    buildSimForces(sim, blackHoleStrengthRef, sunFieldRef, planetFieldRef);
     simRef.current = sim;
 
     return () => { sim.stop(); };
@@ -299,12 +303,12 @@ export function useCanvas(jobs: Job[], activeFilters: string[]) {
     if (lf) lf.links(rawLinks);
 
     // Rebuild forces — hubRepulsion will reinitialize with updated node properties
-    buildSimForces(sim, forceMultiplierRef);
+    buildSimForces(sim, blackHoleStrengthRef, sunFieldRef, planetFieldRef);
 
     // Heat up simulation so nodes find new equilibrium
     sim.alpha(0.5).restart();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilters.join(',')]);
 
-  return { nodes, links, simRef, forceMultiplierRef };
+  return { nodes, links, simRef, blackHoleStrengthRef, sunFieldRef, planetFieldRef };
 }
