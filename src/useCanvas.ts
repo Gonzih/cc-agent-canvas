@@ -12,6 +12,7 @@ export interface HubNode extends d3.SimulationNodeDatum {
   totalCount: number;
   visibleJobCount: number;
   collideRadius: number;
+  highlightAlpha?: number;
 }
 
 export interface JobNode extends d3.SimulationNodeDatum {
@@ -20,6 +21,7 @@ export interface JobNode extends d3.SimulationNodeDatum {
   repo: string;
   job: Job;
   orbitRadius: number;
+  highlightAlpha?: number;
 }
 
 export type CanvasNode = HubNode | JobNode;

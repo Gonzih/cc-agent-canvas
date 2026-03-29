@@ -17,6 +17,7 @@ export default function App() {
   const prevJobIds = useRef<Set<string>>(new Set());
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [hoveredRepo, setHoveredRepo] = useState<string | null>(null);
 
   // Filter state: null means all active; Set means specific statuses are active
   const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null);
@@ -101,6 +102,8 @@ export default function App() {
         selectedRepo={selectedRepo}
         onSelectRepo={handleSelectRepo}
         connected={connected}
+        hoveredRepo={hoveredRepo}
+        onHoverRepo={setHoveredRepo}
       />
       <Canvas
         nodes={nodes}
@@ -114,6 +117,7 @@ export default function App() {
         onFiltersChange={handleFiltersChange}
         availableStatuses={availableStatuses}
         simRef={simRef}
+        hoveredRepo={hoveredRepo}
       />
       <DetailPanel
         job={selectedJob}
