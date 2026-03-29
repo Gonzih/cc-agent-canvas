@@ -14,6 +14,13 @@
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: rgba(180,160,130,0.4); border-radius: 3px; }
+      @keyframes mousey {
+        0%   { transform: translateY(0px) rotate(0deg) scale(1); }
+        25%  { transform: translateY(-18px) rotate(-8deg) scale(1.1); }
+        50%  { transform: translateY(0px) rotate(0deg) scale(1); }
+        75%  { transform: translateY(-10px) rotate(6deg) scale(1.05); }
+        100% { transform: translateY(0px) rotate(0deg) scale(1); }
+      }
     </style>
   </head>
   <body>

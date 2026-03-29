@@ -61,10 +61,8 @@ export function useCanvas(jobs: Job[]) {
       totalCountByRepo.set(repo, (totalCountByRepo.get(repo) ?? 0) + 1);
     }
 
-    // Build hub nodes — one per repo, arranged on a circle
-    const hubNodes: HubNode[] = repos.map((repo, i) => {
-      const angle = (i / repos.length) * Math.PI * 2 - Math.PI / 2;
-      const radius = Math.min(WIDTH, HEIGHT) * 0.32;
+    // Build hub nodes — all start clustered near center, physics drifts them apart by mass
+    const hubNodes: HubNode[] = repos.map((repo) => {
       const hubId = `hub:${repo}`;
       const pos = existingPositions.get(hubId);
       return {
@@ -74,8 +72,8 @@ export function useCanvas(jobs: Job[]) {
         label: repo,
         colorIndex: getRepoColorIndex(repo),
         totalCount: totalCountByRepo.get(repo) ?? 0,
-        x: pos?.x ?? WIDTH / 2 + Math.cos(angle) * radius,
-        y: pos?.y ?? HEIGHT / 2 + Math.sin(angle) * radius,
+        x: pos?.x ?? WIDTH / 2 + (Math.random() - 0.5) * 60,
+        y: pos?.y ?? HEIGHT / 2 + (Math.random() - 0.5) * 60,
       };
     });
 
@@ -125,8 +123,16 @@ export function useCanvas(jobs: Job[]) {
         .id(d => d.id)
         .strength(l => l.linkType === 'hub-spoke' ? 0.4 : 0.15)
         .distance(l => l.linkType === 'hub-spoke' ? 100 : 70))
-      .force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? -800 : -150))
-      .force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? 55 : 32))
+      .force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => {
+        const cn = n as CanvasNode;
+        if (cn.type === 'hub') return Math.max(-2000, -400 - ((cn as HubNode).totalCount * 8));
+        return -150;
+      }))
+      .force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => {
+        const cn = n as CanvasNode;
+        if (cn.type === 'hub') return Math.min(20 + (cn as HubNode).totalCount * 0.4, 120);
+        return 32;
+      }))
       .force('center', d3.forceCenter(WIDTH / 2, HEIGHT / 2).strength(0.03))
       .alphaDecay(0.005)
       .alphaMin(0.001) // never fully stops — gives Gource living feel

@@ -15,6 +15,12 @@ export default function App() {
   const [panToRepo, setPanToRepo] = useState<string | null>(null);
   const prevJobIds = useRef<Set<string>>(new Set());
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  // Dismiss loading overlay on first data
+  useEffect(() => {
+    if (loading && jobs.length > 0) setLoading(false);
+  }, [jobs, loading]);
 
   // Track newly arriving jobs for bloom animation
   useEffect(() => {
@@ -46,6 +52,23 @@ export default function App() {
 
   return (
     <div style={{ background: '#F5F0E8', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {loading && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: '#F5F0E8',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          zIndex: 100,
+          fontFamily: 'DM Sans, system-ui',
+        }}>
+          <div style={{ fontSize: 72, animation: 'mousey 1.2s ease-in-out infinite' }}>
+            🐭
+          </div>
+          <div style={{ marginTop: 24, color: '#8B7355', fontSize: 14, letterSpacing: '0.05em' }}>
+            loading your universe...
+          </div>
+        </div>
+      )}
       <Sidebar
         jobs={jobs}
         selectedRepo={selectedRepo}
