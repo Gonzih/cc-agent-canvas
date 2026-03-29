@@ -75,6 +75,7 @@ export function Canvas({
 
   const nodesRef = useRef<CanvasNode[]>(nodes);
   const linksRef = useRef<SimLink[]>(links);
+  const centeredRef = useRef(false);
   const transformRef = useRef(transform);
   const selectedIdRef = useRef(selectedId);
   const hoveredIdRef = useRef<string | null>(null);
@@ -92,6 +93,39 @@ export function Canvas({
       if (!bloomRef.current.has(id)) bloomRef.current.set(id, now);
     }
   }, [newIds]);
+
+  // Auto-center viewport once after simulation stabilizes (~300 ticks ≈ 2s)
+  useEffect(() => {
+    if (centeredRef.current) return;
+    if (!nodes.length) return;
+    const hasPositions = nodes.every(n => n.x !== undefined && n.y !== undefined);
+    if (!hasPositions) return;
+
+    const timer = setTimeout(() => {
+      if (centeredRef.current) return;
+      centeredRef.current = true;
+      const ns = nodesRef.current;
+      if (!ns.length) return;
+      const xs = ns.map(n => n.x ?? 0);
+      const ys = ns.map(n => n.y ?? 0);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const padding = 80;
+      const cw = window.innerWidth - 220;
+      const ch = window.innerHeight;
+      const scaleX = cw / (maxX - minX + padding * 2);
+      const scaleY = ch / (maxY - minY + padding * 2);
+      const scale = Math.min(scaleX, scaleY, 1.2);
+      const tx = (cw - (maxX + minX) * scale) / 2;
+      const ty = (ch - (maxY + minY) * scale) / 2;
+      setTransform({ x: tx, y: ty, k: scale });
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length > 0]);
 
   // Resize canvas to fill container
   useEffect(() => {
@@ -167,7 +201,7 @@ export function Canvas({
         const px = -dy / len;
         const py = dx / len;
         const jobNode = (src.type === 'job' ? src : tgt) as JobNode;
-        const wobble = Math.sin(now / 2000 + (jobNode.x ?? 0) * 0.01) * 8;
+        const wobble = Math.sin(now / 2000 + (jobNode.x ?? 0) * 0.01) * 12;
         const mx = (sx + tx) / 2 + px * wobble;
         const my = (sy + ty) / 2 + py * wobble;
 
@@ -262,6 +296,11 @@ export function Canvas({
       for (const jn of jobs) {
         const jx = jn.x ?? 0;
         const jy = jn.y ?? 0;
+        // Render offset wobble — independent per-planet using x/y as phase seeds
+        const wobbleX = Math.sin(now / 900 + jx * 0.05) * 4;
+        const wobbleY = Math.cos(now / 1100 + jy * 0.05) * 4;
+        const rx = jx + wobbleX;
+        const ry = jy + wobbleY;
         const status = jn.job.status;
         const isRunning = status?.toLowerCase() === 'running';
         const isSelected = selId === jn.id;
@@ -287,39 +326,39 @@ export function Canvas({
 
         ctx.save();
         if (scale < 1) {
-          ctx.translate(jx, jy);
+          ctx.translate(rx, ry);
           ctx.scale(scale, scale);
-          ctx.translate(-jx, -jy);
+          ctx.translate(-rx, -ry);
         }
 
         // Job glow
-        const grd = ctx.createRadialGradient(jx, jy, 0, jx, jy, r * 1.8);
+        const grd = ctx.createRadialGradient(rx, ry, 0, rx, ry, r * 1.8);
         grd.addColorStop(0, fill);
         grd.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(jx, jy, r * 1.8, 0, Math.PI * 2);
+        ctx.arc(rx, ry, r * 1.8, 0, Math.PI * 2);
         ctx.fillStyle = grd;
         ctx.fill();
 
         // Job fill
         ctx.beginPath();
-        ctx.arc(jx, jy, r, 0, Math.PI * 2);
+        ctx.arc(rx, ry, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;
         ctx.fill();
 
         // Job shine
-        const shine = ctx.createRadialGradient(jx - r * 0.35, jy - r * 0.3, 0, jx - r * 0.35, jy - r * 0.3, r * 0.8);
+        const shine = ctx.createRadialGradient(rx - r * 0.35, ry - r * 0.3, 0, rx - r * 0.35, ry - r * 0.3, r * 0.8);
         shine.addColorStop(0, 'rgba(255,255,255,0.45)');
         shine.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(jx, jy, r, 0, Math.PI * 2);
+        ctx.arc(rx, ry, r, 0, Math.PI * 2);
         ctx.fillStyle = shine;
         ctx.fill();
 
         // Selection / hover ring
         if (isSelected || isHovered) {
           ctx.beginPath();
-          ctx.arc(jx, jy, r + 5, 0, Math.PI * 2);
+          ctx.arc(rx, ry, r + 5, 0, Math.PI * 2);
           ctx.strokeStyle = fill;
           ctx.lineWidth = isSelected ? 2.5 : 1.5;
           ctx.globalAlpha = 0.7;
@@ -331,15 +370,15 @@ export function Canvas({
         if (isRunning) {
           const pulseR = r * 1.8 + Math.sin(now / 500) * 5;
           ctx.beginPath();
-          ctx.arc(jx, jy, pulseR, 0, Math.PI * 2);
+          ctx.arc(rx, ry, pulseR, 0, Math.PI * 2);
           ctx.strokeStyle = glowColor;
           ctx.lineWidth = 2;
           ctx.stroke();
         }
 
         // Status dot (top-right)
-        const dotX = jx + r * 0.65;
-        const dotY = jy - r * 0.65;
+        const dotX = rx + r * 0.65;
+        const dotY = ry - r * 0.65;
         ctx.beginPath();
         ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(250,246,238,0.9)';

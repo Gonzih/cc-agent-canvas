@@ -115,8 +115,8 @@ export function useCanvas(jobs: Job[]) {
         .id(d => d.id)
         .strength(l => l.linkType === 'hub-spoke' ? 0.4 : 0.15)
         .distance(l => l.linkType === 'hub-spoke' ? 100 : 70))
-      .force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? -800 : -80))
-      .force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? 55 : 22))
+      .force('charge', d3.forceManyBody().strength((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? -800 : -150))
+      .force('collide', d3.forceCollide((n: d3.SimulationNodeDatum) => (n as CanvasNode).type === 'hub' ? 55 : 32))
       .force('center', d3.forceCenter(WIDTH / 2, HEIGHT / 2).strength(0.03))
       .alphaDecay(0.005)
       .alphaMin(0.001) // never fully stops — gives Gource living feel
